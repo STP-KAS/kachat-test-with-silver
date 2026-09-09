@@ -125,9 +125,10 @@ button { cursor: pointer; }
   flex: 1;
   min-height: 0;
   display: flex;
-  /* The dock floats over the bottom of every screen now, so every screen reserves its height -
-     otherwise the last row of a list, or a composer, sits underneath it. */
-  padding-bottom: 92px;
+  /* The dock floats over the bottom of every screen now, so every screen reserves its height AND
+     the gap under it - otherwise the last row of a list, or the message composer, ends up tucked
+     right against it with no air, which is what made the dock look squeezed in. */
+  padding-bottom: 124px;
 }
 
 .app-sidebar {
@@ -169,11 +170,11 @@ button { cursor: pointer; }
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 2px;
+  gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: 28px;
   background: #0d1116;
-  padding: 8px 10px;
+  padding: 10px 16px;
   box-shadow: 0 16px 44px rgba(0,0,0,.45);
   max-width: calc(100vw - 32px);
   overflow: hidden;
@@ -181,14 +182,14 @@ button { cursor: pointer; }
 
 .sidebar-tab {
   flex: 0 0 auto;
-  width: 84px;
+  width: 88px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 6px 4px 8px;
+  gap: 6px;
+  padding: 8px 6px 9px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -284,7 +285,7 @@ button { cursor: pointer; }
 .new-chat-fab {
   position: fixed;
   right: 28px;
-  bottom: 106px; /* clear of the dock, which is now permanently on screen */
+  bottom: 132px; /* clear of the dock, which is now permanently on screen */
   z-index: 500;
   width: 58px;
   height: 58px;
@@ -8334,7 +8335,7 @@ body.session-logged-out [data-account-rename-modal] {
     border-top: 1px solid var(--line);
     border-radius: 0;
     max-width: none; /* full-width bar here, not the desktop pill */
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -10px 30px rgba(0,0,0,.45);
   }
 
@@ -8342,8 +8343,8 @@ body.session-logged-out [data-account-rename-modal] {
     flex: 1 1 0;
     width: auto;
     min-width: 0;
-    gap: 3px;
-    padding: 4px 2px 2px;
+    gap: 5px;
+    padding: 6px 2px 4px;
     font-size: 11px;
     /* Reordering is a desktop affordance; on touch this would fight scrolling. */
     cursor: pointer;
@@ -8361,6 +8362,6 @@ body.session-logged-out [data-account-rename-modal] {
   .app-body.conversation-open ~ .sidebar-tabbar { display: flex; }
 
   /* Reserve the dock's height so nothing sits underneath it. */
-  .app-body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-  .new-chat-fab { bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
+  .app-body { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .new-chat-fab { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
 }
