@@ -5916,7 +5916,9 @@ body.session-logged-out [data-account-rename-modal] {
    the label is laid OVER a square canvas rather than sizing it, which is what keeps a two-line
    name from growing that one tile alone.
    ============================================================ */
-.hub-screen { display: flex; flex-direction: column; min-height: 0; }
+.hub-screen { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.hub-screen .kaposts-header { width: 100%; }
+.hub-screen .kaposts-icon-button { flex: 0 0 auto; }
 .hub-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5957,17 +5959,31 @@ body.session-logged-out [data-account-rename-modal] {
 .hub-empty h3 { margin: 0; font-size: 16px; }
 .hub-empty p { margin: 0; max-width: 42ch; font-size: 13px; color: var(--muted); line-height: 1.55; }
 
-.dock-editor { display: grid; gap: 12px; }
+.settings-page-form.dock-editor { display: grid; gap: 8px; }
 .dock-editor-head { display: flex; flex-direction: column; gap: 4px; }
-.dock-editor-head strong { font-size: 14px; }
-.dock-editor-head small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.dock-editor-head strong { font-size: 13.5px; }
+.dock-editor-head small { font-size: 12px; color: var(--muted); line-height: 1.45; }
 .dock-editor-head-split { flex-direction: row; align-items: baseline; justify-content: space-between; }
 .dock-editor-head-split strong { white-space: nowrap; }
 /* The settings form's own span rule stretches this to fill the row, so the count is right-ALIGNED
    rather than right-positioned - space-between has nothing to push when one item already fills. */
 .dock-editor-count { font-size: 12px; color: var(--muted); text-align: right; }
 .dock-editor-count.full { color: #f5a623; }
-.dock-editor-grid { padding: 0; overflow: visible; }
+/* Not the Hub's fixed three columns: this grid takes as many as the width allows, so the four
+   tiles a default arrangement has sit on ONE row and the dock preview stays above the fold. Three
+   across with a near-empty second row was what pushed it under. */
+.dock-editor-grid {
+  padding: 0;
+  overflow: visible;
+  max-width: none;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+.dock-editor-grid .hub-tile { aspect-ratio: auto; min-height: 72px; gap: 6px; padding: 9px 6px; }
+.dock-editor-grid .hub-tile-icon { height: 24px; }
+.dock-editor-grid .hub-tile-icon svg,
+.dock-editor-grid .hub-tile-icon img { width: 22px; height: 22px; }
+.dock-editor-grid .hub-tile-label { font-size: 11.5px; }
 .dock-editor-empty {
   margin: 0;
   padding: 24px 16px;
@@ -5984,8 +6000,8 @@ body.session-logged-out [data-account-rename-modal] {
    be showing an arrangement nobody is going to see. The count says how much room is left. */
 .dock-editor-preview {
   display: flex;
-  gap: 2px;
-  padding: 8px 10px;
+  gap: 4px;
+  padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: #0d1116;
@@ -5997,7 +6013,7 @@ body.session-logged-out [data-account-rename-modal] {
   flex-direction: column;
   align-items: center;
   gap: 5px;
-  padding: 8px 4px;
+  padding: 6px 4px;
   border: 0;
   border-radius: 16px;
   background: transparent;
@@ -6014,7 +6030,7 @@ body.session-logged-out [data-account-rename-modal] {
 .dock-preview-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .dock-preview-icon img { width: 22px; height: 22px; object-fit: contain; }
 .dock-preview-label { font-size: 10px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-editor-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; text-align: center; }
+.dock-editor-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; text-align: center; }
 
 @media (max-width: 859px) {
   .hub-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }

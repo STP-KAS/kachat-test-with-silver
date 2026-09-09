@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=304" />
+  <link rel="stylesheet" href="./ui/styles.css?v=311" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -400,7 +400,9 @@
         <div class="profile-screen hub-screen" data-app-tab-screen="hub" hidden>
           <div class="kaposts-header">
             <h1 class="kaposts-title">Kaspa Hub</h1>
-            <button class="ghost-button" type="button" data-open-customize-dock>Customize Dock</button>
+            <button class="kaposts-icon-button" type="button" data-open-customize-dock aria-label="Customize Dock" title="Customize Dock">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h5.4M12.6 7H21M3 12h9.4M16.6 12H21M3 17h6.4M13.6 17H21"/><circle cx="10.5" cy="7" r="2.1"/><circle cx="14.5" cy="12" r="2.1"/><circle cx="11.5" cy="17" r="2.1"/></svg>
+            </button>
           </div>
           <div class="hub-grid" data-hub-grid></div>
           <div class="hub-empty" data-hub-empty hidden>
@@ -835,7 +837,7 @@
               <div class="settings-page-form dock-editor">
                 <div class="dock-editor-head">
                   <strong>Kaspa Hub</strong>
-                  <small>Opened from the Kaspa Hub tab, in this order. Nothing here is switched off, it is one click further away than the dock. Click one to move it into your dock, or drag to reorder.</small>
+                  <small>Opened from the Kaspa Hub tab, in this order. Nothing here is switched off, it is one click further away. Click one to move it into your dock, or drag to reorder.</small>
                 </div>
                 <div class="hub-grid dock-editor-grid" data-dock-hub-grid></div>
                 <p class="dock-editor-empty" data-dock-hub-empty hidden>Everything is in your dock. Click a dock item to move it back here.</p>
@@ -2716,7 +2718,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=320"></script>
+  <script type="module" src="./ui/app.js?v=321"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>

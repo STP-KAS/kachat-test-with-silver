@@ -6612,10 +6612,16 @@ function applyDockLayout() {
   if (!tabbar) return;
   const visible = dockVisibleTabs();
 
+  // Each button is appended ONCE, visible ones first in the user's order and the rest trailing
+  // behind hidden. Without the guard the second list re-appended every visible tab, so the live
+  // dock always came out in DEFAULT order and reordering in Customize Dock did nothing to it.
+  const placed = new Set();
   for (const tab of [...visible, ...DOCK_DEFAULT_ORDER]) {
+    if (placed.has(tab)) continue;
+    placed.add(tab);
     const btn = tabbar.querySelector(`.sidebar-tab[data-app-tab="${tab}"]`);
     if (!btn) continue;
-    tabbar.appendChild(btn); // visible tabs first, in order; the rest trail behind, hidden
+    tabbar.appendChild(btn);
     btn.hidden = !visible.includes(tab);
   }
 
