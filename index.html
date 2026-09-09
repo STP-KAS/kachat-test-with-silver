@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=300" />
+  <link rel="stylesheet" href="./ui/styles.css?v=302" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -394,6 +394,22 @@
             </div>
           </div>
 
+        <!-- Kaspa Hub: what holds every feature that is not in the dock (iOS EcosystemView).
+             Membership is computed, never configured - a feature is in the dock or in here, never
+             both and never nowhere. Tiles are rendered by applyDockLayout(). -->
+        <div class="profile-screen hub-screen" data-app-tab-screen="hub" hidden>
+          <div class="kaposts-header">
+            <h1 class="kaposts-title">Kaspa Hub</h1>
+            <button class="ghost-button" type="button" data-open-customize-dock>Customize Dock</button>
+          </div>
+          <div class="hub-grid" data-hub-grid></div>
+          <div class="hub-empty" data-hub-empty hidden>
+            <img src="./ui/assets/kaspa-logo.png" alt="" class="hub-empty-logo" />
+            <h3>Nothing here right now</h3>
+            <p>KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings &gt; Customization &gt; Customize Dock.</p>
+          </div>
+        </div>
+
         <div class="portfolio-screen profile-screen" data-app-tab-screen="cold-storage" hidden>
           <div data-cold-root></div>
         </div>
@@ -712,17 +728,16 @@
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg></span>
         <span>Apps</span>
       </button>
+      <button class="sidebar-tab" type="button" data-app-tab="hub">
+        <span class="sidebar-tab-icon" aria-hidden="true"><img class="sidebar-tab-logo" src="./ui/assets/kaspa-logo.png" alt="" width="24" height="24" /></span>
+        <span>Kaspa Hub</span>
+      </button>
       <button class="sidebar-tab" type="button" data-app-tab="profile">
         <span class="sidebar-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.25"/><circle cx="12" cy="8.35" r="3.35"/><path d="M5.8 18.75c1.2-3.15 3.35-4.7 6.2-4.7s5 1.55 6.2 4.7"/></svg></span>
         <span>Profile</span>
       </button>
     </nav>
 
-    <!-- Obvious right-edge handle that reveals/hides the vertical dock (replaces the old
-         automatic bottom-edge pop-out). Hovering peeks it; clicking pins it open/closed. -->
-    <button class="dock-handle" type="button" data-dock-handle aria-label="Show menu" aria-expanded="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg>
-    </button>
   </main>
 
   <div class="account-overlay" data-account-overlay hidden role="dialog" aria-modal="true" aria-label="Settings">
@@ -817,40 +832,22 @@
           <section class="settings-group" data-settings-subscreen="dock">
             <p class="settings-group-label">Customize Dock</p>
             <div class="settings-list-card">
-              <div class="settings-page-form">
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.3 4.5h9.1a3.8 3.8 0 0 1 3.8 3.8v2.7a3.8 3.8 0 0 1-3.8 3.8H8.7l-4.45 3.05.02-3.44A3.78 3.78 0 0 1 .5 10.65V8.3a3.8 3.8 0 0 1 3.8-3.8Z"/><path d="M9.65 8.15h6.1a3.75 3.75 0 0 1 3.75 3.75v1.95a3.75 3.75 0 0 1-3.75 3.75h-2.7L9.5 20.1v-2.5"/></svg>Chats</span>
-                    <span class="menu-tab-locked">Always shown</span>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><circle cx="12" cy="8.35" r="3.35"/><path d="M5.8 18.75c1.2-3.15 3.35-4.7 6.2-4.7s5 1.55 6.2 4.7"/></svg>Profile</span>
-                    <span class="menu-tab-locked">Always shown</span>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg>Portfolio</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="portfolio" checked><span></span></label>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2.4"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1.6"/></svg>Cold Storage</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="cold-storage" checked><span></span></label>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Swap</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="swaps" checked><span></span></label>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.862 4.487l1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897l12.682-12.68Z"/></svg>KaPosts</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="kaposts" checked><span></span></label>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.348 14.652a3.75 3.75 0 0 1 0-5.304m5.304 0a3.75 3.75 0 0 1 0 5.304m-7.425 2.121a6.75 6.75 0 0 1 0-9.546m9.546 0a6.75 6.75 0 0 1 0 9.546"/></svg>Broadcasts</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="broadcasts" checked><span></span></label>
-                  </div>
-                  <div class="menu-tab-row">
-                    <span class="menu-tab-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>Apps</span>
-                    <label class="switch-control"><input type="checkbox" data-menu-tab="apps"><span></span></label>
-                  </div>
-                  <p class="field-hint" data-child-dock-note hidden>Swap, KaPosts and Broadcasts are hidden while Child Mode is on — an adult can bring them back in Settings &gt; Security &gt; Child Mode.</p>
+              <div class="settings-page-form dock-editor">
+                <div class="dock-editor-head">
+                  <strong>Kaspa Hub</strong>
+                  <small>Opened from the Kaspa Hub tab, in this order. Nothing here is switched off, it is one click further away than the dock. Click one to move it into your dock, or drag to reorder.</small>
+                </div>
+                <div class="hub-grid dock-editor-grid" data-dock-hub-grid></div>
+                <p class="dock-editor-empty" data-dock-hub-empty hidden>Everything is in your dock. Click a dock item to move it back here.</p>
+                <p class="field-hint dock-editor-refusal" data-dock-refusal hidden></p>
+                <p class="field-hint" data-child-dock-note hidden>Swap, KaPosts and Broadcasts are hidden while Child Mode is on, an adult can bring them back in Settings &gt; Security &gt; Child Mode.</p>
+
+                <div class="dock-editor-head dock-editor-head-split">
+                  <strong>Your Dock</strong>
+                  <span class="dock-editor-count" data-dock-count>5 of 5</span>
+                </div>
+                <div class="dock-editor-preview" data-dock-preview></div>
+                <small class="dock-editor-hint" data-dock-hint></small>
               </div>
             </div>
           </section>
@@ -2094,7 +2091,7 @@
           </button>
           <button class="help-guide-row" type="button" data-help-dock>
             <span class="help-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="15.5" width="18" height="5" rx="2"/><path d="M12 3.5v8M8.5 8l3.5 3.5L15.5 8"/></svg></span>
-            <span class="help-guide-copy"><strong>Dock Guide</strong><small>What's new in 4.0: the auto-hiding dock and how to make it yours.</small></span>
+            <span class="help-guide-copy"><strong>Dock Guide</strong><small>Your dock, Kaspa Hub, and how to make the layout yours.</small></span>
             <svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
           </button>
         </div>
@@ -2719,7 +2716,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=318"></script>
+  <script type="module" src="./ui/app.js?v=320"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>

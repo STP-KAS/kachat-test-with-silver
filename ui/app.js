@@ -6413,11 +6413,29 @@ function restoreLastAppTab() {
   } catch { /* restoring the spot is best-effort */ }
 }
 
+/// The Hub section on screen, or null for the Hub's own grid.
+///
+/// A section opened from the Hub owns the whole screen and looks exactly as it does from its own
+/// dock slot - that is the point of placement, that where a feature LIVES does not change what it
+/// IS. So the screen shown and the dock item highlighted come apart here: the dock still shows
+/// Kaspa Hub as selected, and clicking Kaspa Hub again is the way back out, the same button that
+/// got you in (iOS EcosystemRouter).
+let hubSection = null;
+
 function setActiveAppTab(tab) {
   // Child Mode choke point: every tab switch (dock click, restore, deep link,
   // programmatic) funnels through here, so gated tabs simply become Chats.
   if (isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(tab)) tab = "chats";
-  try { localStorage.setItem(UI_SPOT_TAB_KEY, tab); } catch { /* best-effort */ }
+  // A tab that lives in the Hub is REACHED through the Hub, so asking for it directly - a deep
+  // link, a notification tap, the restored spot - opens it there rather than failing.
+  if (tab !== "hub" && !dockPrefs.dock.includes(tab) && dockPrefs.hub.includes(tab)) {
+    hubSection = tab;
+    tab = "hub";
+  } else if (tab !== "hub") {
+    hubSection = null;
+  }
+  const screenTab = tab === "hub" && hubSection ? hubSection : tab;
+  try { localStorage.setItem(UI_SPOT_TAB_KEY, screenTab); } catch { /* best-effort */ }
   sidebarTabButtons.forEach((button) => {
     const active = button.dataset.appTab === tab;
     button.classList.toggle("active", active);
@@ -6426,11 +6444,11 @@ function setActiveAppTab(tab) {
   });
 
   currentAppTab = tab;
-  const isChats = tab === "chats";
+  const isChats = screenTab === "chats";
   if (appSidebar) appSidebar.hidden = !isChats;
   if (newChatFab) newChatFab.hidden = !isChats;
   appTabScreens.forEach((screen) => {
-    screen.hidden = screen.dataset.appTabScreen !== tab;
+    screen.hidden = screen.dataset.appTabScreen !== screenTab;
   });
   if (!isChats) {
     if (conversation) conversation.hidden = true;
@@ -6444,258 +6462,119 @@ function setActiveAppTab(tab) {
     if (detailEmptyState) detailEmptyState.hidden = groupOpen || Boolean(activeConversationId);
   }
   updateDetailActiveClass();
-  if (tab === "profile") { refreshOwnKnsProfile(); refreshSpendingSummary(); }
-  if (tab === "kaposts") refreshKaPostsFeed();
-  if (tab === "broadcasts") refreshBroadcasts();
+  if (screenTab === "profile") { refreshOwnKnsProfile(); refreshSpendingSummary(); }
+  if (screenTab === "kaposts") refreshKaPostsFeed();
+  if (screenTab === "broadcasts") refreshBroadcasts();
   else stopBroadcastPolling();
-  if (tab === "portfolio") refreshPortfolio();
-  if (tab === "cold-storage") refreshColdStorage();
-  if (tab === "swaps") refreshSwaps();
+  if (screenTab === "portfolio") refreshPortfolio();
+  if (screenTab === "cold-storage") refreshColdStorage();
+  if (screenTab === "swaps") refreshSwaps();
 }
 
 sidebarTabButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    setActiveAppTab(button.dataset.appTab);
+    const tab = button.dataset.appTab;
+    // Kaspa Hub is its own way back: clicking it while a section is open closes the section and
+    // returns to the grid, so the button that opened a section is the one that leaves it.
+    if (tab === "hub" && currentAppTab === "hub" && hubSection) hubSection = null;
+    setActiveAppTab(tab);
     applyDockLayout();
   });
 });
 
-// 4.0 desktop dock: a VERTICAL dock docked off the right edge, revealed by an obvious
-// right-edge handle. Hover the handle (or the dock) to peek it; click the handle to pin it
-// open or closed. No automatic bottom-edge pop-out anymore.
-const dockBar = document.querySelector(".sidebar-tabbar");
-const dockHandle = document.querySelector("[data-dock-handle]");
-let dockHideTimer = null;
-let dockPinned = false; // click-to-pin: when true the dock stays open regardless of hover.
-// True while a dock item is being dragged to reorder — keeps the dock open so an accidental
-// mouse-leave can't snatch it away mid-drag (see enableDockReorder below).
-let dockDragActive = false;
-
-// Below this width the dock is iOS's permanent bottom bar (see the mobile block in
-// styles.css), so the desktop hover/pin/auto-hide behaviour must not run at all: there is
-// no hover on touch, and a nav that hides itself is undiscoverable.
-const MOBILE_DOCK_QUERY = window.matchMedia ? window.matchMedia("(max-width: 859px)") : null;
-function isMobileDock() { return Boolean(MOBILE_DOCK_QUERY?.matches); }
-
-function syncDockHandle() {
-  if (!dockHandle || !dockBar) return;
-  const open = !dockBar.classList.contains("dock-hidden");
-  dockHandle.classList.toggle("open", open);
-  dockHandle.setAttribute("aria-expanded", open ? "true" : "false");
-  dockHandle.setAttribute("aria-label", open ? "Hide menu" : "Show menu");
-}
-
-function showDock() {
-  if (!dockBar) return;
-  dockBar.classList.remove("dock-hidden");
-  if (dockHideTimer) { clearTimeout(dockHideTimer); dockHideTimer = null; }
-  syncDockHandle();
-}
-
-function hideDock() {
-  if (!dockBar) return;
-  if (isMobileDock()) return; // permanent on mobile
-  dockBar.classList.add("dock-hidden");
-  if (dockHideTimer) { clearTimeout(dockHideTimer); dockHideTimer = null; }
-  syncDockHandle();
-}
-
-function hideDockSoon(delay = 400) {
-  if (!dockBar) return;
-  if (isMobileDock()) return;
-  if (dockHideTimer) clearTimeout(dockHideTimer);
-  dockHideTimer = window.setTimeout(() => {
-    if (dockDragActive || dockPinned) return;
-    if (dockBar.matches(":hover") || (dockHandle && dockHandle.matches(":hover")) || dockBar.contains(document.activeElement)) return;
-    hideDock();
-  }, delay);
-}
-
-if (dockBar) {
-  // Start tucked away on desktop only; on mobile the dock is always on screen.
-  if (!isMobileDock()) dockBar.classList.add("dock-hidden");
-  syncDockHandle();
-  // Rotating a phone or resizing across the breakpoint must not strand the dock in the
-  // other mode's state.
-  MOBILE_DOCK_QUERY?.addEventListener?.("change", (event) => {
-    if (event.matches) {
-      dockPinned = false;
-      dockBar.classList.remove("dock-hidden");
-    } else {
-      dockBar.classList.add("dock-hidden");
-    }
-    syncDockHandle();
-  });
-
-  if (dockHandle) {
-    // Click pins the dock open (or closes it).
-    dockHandle.addEventListener("click", () => {
-      if (dockBar.classList.contains("dock-hidden")) { dockPinned = true; showDock(); }
-      else { dockPinned = false; hideDock(); }
-    });
-    // Hover peeks the dock without pinning.
-    dockHandle.addEventListener("mouseenter", showDock);
-    dockHandle.addEventListener("mouseleave", () => hideDockSoon());
-  }
-  // Keep it open while the pointer is over the dock; tuck it away shortly after leaving.
-  dockBar.addEventListener("mouseenter", showDock);
-  dockBar.addEventListener("mouseleave", () => hideDockSoon());
-  dockBar.addEventListener("focusin", showDock);
-  dockBar.addEventListener("focusout", () => hideDockSoon(800));
-}
-
-// --- Drag-to-reorder the dock -------------------------------------------------
-// Hold (or start dragging) any dock item to pick it up, slide it left/right past its
-// neighbors to reposition, and release to drop. The new order is written straight into
-// the per-account dock prefs (dockPrefs.order). A plain quick tap still switches tabs —
-// a drag suppresses that following click so reordering never changes the active screen.
-(function enableDockReorder() {
-  const tabbar = document.querySelector(".sidebar-tabbar");
-  if (!tabbar) return;
-
-  const HOLD_MS = 160;          // press-and-hold before a drag arms
-  const MOVE_THRESHOLD_PX = 6;  // or move this far first — whichever comes first
-  let dragBtn = null;
-  let pointerId = null;
-  let holdTimer = null;
-  let startX = 0;
-  let startY = 0;
-  let dragging = false;
-  let suppressClick = false;
-
-  function clearHold() {
-    if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
-  }
-
-  function cleanup() {
-    clearHold();
-    if (dragBtn) {
-      dragBtn.classList.remove("dragging");
-      try { if (pointerId != null) dragBtn.releasePointerCapture(pointerId); } catch { /* already released */ }
-    }
-    tabbar.classList.remove("reordering");
-    dockDragActive = false;
-    dragBtn = null;
-    pointerId = null;
-    dragging = false;
-    hideDockSoon(1200);
-  }
-
-  function beginDrag() {
-    if (!dragBtn || dragging) return;
-    dragging = true;
-    dockDragActive = true;
-    showDock();
-    dragBtn.classList.add("dragging");
-    tabbar.classList.add("reordering");
-    try { if (pointerId != null) dragBtn.setPointerCapture(pointerId); } catch { /* capture optional */ }
-  }
-
-  // Move dragBtn to wherever the pointer sits along the vertical dock, based on the
-  // centers of the other visible items.
-  function reorderTo(clientY) {
-    const siblings = [...tabbar.querySelectorAll(".sidebar-tab")].filter((b) => !b.hidden && b !== dragBtn);
-    for (const sib of siblings) {
-      const rect = sib.getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) {
-        if (sib.previousElementSibling !== dragBtn) tabbar.insertBefore(dragBtn, sib);
-        return;
-      }
-    }
-    if (tabbar.lastElementChild !== dragBtn) tabbar.appendChild(dragBtn);
-  }
-
-  tabbar.addEventListener("pointerdown", (event) => {
-    // Drag-to-reorder is a desktop affordance. On the mobile dock it would swallow taps and
-    // fight scrolling, and iOS offers no reordering there either.
-    if (isMobileDock()) return;
-    if (event.button != null && event.button !== 0) return;
-    const btn = event.target.closest(".sidebar-tab");
-    if (!btn || btn.hidden || !tabbar.contains(btn)) return;
-    dragBtn = btn;
-    pointerId = event.pointerId;
-    startX = event.clientX;
-    startY = event.clientY;
-    suppressClick = false;
-    clearHold();
-    holdTimer = window.setTimeout(beginDrag, HOLD_MS);
-  });
-
-  tabbar.addEventListener("pointermove", (event) => {
-    if (!dragBtn || event.pointerId !== pointerId) return;
-    if (!dragging) {
-      if (Math.abs(event.clientX - startX) > MOVE_THRESHOLD_PX || Math.abs(event.clientY - startY) > MOVE_THRESHOLD_PX) {
-        clearHold();
-        beginDrag();
-      } else {
-        return;
-      }
-    }
-    if (!dragging) return;
-    event.preventDefault();
-    suppressClick = true;
-    reorderTo(event.clientY);
-  });
-
-  function finishDrag(event) {
-    if (!dragBtn || (pointerId != null && event.pointerId !== pointerId)) return;
-    const wasDragging = dragging;
-    if (wasDragging) {
-      // Persist the DOM order (known tabs only) so the layout is stable across reloads.
-      const domOrder = [...tabbar.querySelectorAll(".sidebar-tab")]
-        .map((b) => b.dataset.appTab)
-        .filter((t) => DOCK_DEFAULT_ORDER.includes(t));
-      dockPrefs.order = domOrder;
-      persistDockPrefs();
-      applyDockLayout();
-    }
-    cleanup();
-  }
-
-  tabbar.addEventListener("pointerup", finishDrag);
-  tabbar.addEventListener("pointercancel", cleanup);
-
-  // A drag ends with a synthetic click on the button — swallow it (capture phase, before
-  // the tab-switch handler) so releasing a reorder never also changes the active tab.
-  tabbar.addEventListener("click", (event) => {
-    if (suppressClick) {
-      event.stopPropagation();
-      event.preventDefault();
-      suppressClick = false;
-    }
-  }, true);
-})();
-
-// Menu customization (Settings > Customization > Menu) — which dock tabs appear.
-// Chats and Profile are always shown (like iOS); Portfolio, Cold Storage and Swap
-// can be hidden. Hidden ids persist in accountShellPrefs.hiddenTabs.
 // ---------------------------------------------------------------------------
-// 4.0 dock model, desktop variant: unlike iOS (5-tab cap with KaPosts/Broadcasts
-// riding a Chats-slot cycle), a desktop window fits everything — every enabled
-// tab renders directly in the dock. Dock config (hidden + order) is PER ACCOUNT.
+// 4.1 dock: iOS's dock, on the desktop.
+//
+// 4.0 hid this behind a right-edge handle that you hovered to peek and clicked to pin. Nothing
+// else in the app works that way and nothing on the phones does either - the dock there is simply
+// on screen, on every tab, always. So the handle, the hover peek, the pin and the auto-hide timer
+// are all gone: the dock is a permanent bar and the only thing left to decide is what is in it.
+//
+// Placement, not visibility (iOS AppTab). Every assignable tab is either IN THE DOCK or IN THE
+// HUB, and always in exactly one of them, so a feature can never end up nowhere. The dock holds
+// five items at most - the phones' hard cap, kept here so an arrangement made on one device
+// describes the same dock on the other - and Kaspa Hub and Profile are pinned into it: the Hub
+// because it is what holds everything not in the dock, Profile because it is the way to Settings
+// and the account list.
 // ---------------------------------------------------------------------------
 
-const DOCK_PREFS_KEY = "kachat-dock-prefs-v1"; // account-scoped: { hiddenTabs, order }
-const DOCK_DEFAULT_ORDER = ["cold-storage", "portfolio", "chats", "kaposts", "broadcasts", "swaps", "apps", "profile"];
-const DOCK_ALWAYS_VISIBLE = ["chats", "profile"];
-const MENU_TOGGLEABLE_TABS = ["portfolio", "cold-storage", "swaps", "kaposts", "broadcasts", "apps"];
+const DOCK_PREFS_KEY = "kachat-dock-prefs-v1"; // account-scoped: { dock, hub }
+const DOCK_MAX_ITEMS = 5;
+const DOCK_PINNED = ["hub", "profile"];
+/** Tabs the user can place. Excludes the pinned two. */
+const DOCK_ASSIGNABLE = ["chats", "portfolio", "cold-storage", "swaps", "kaposts", "broadcasts", "apps"];
+const DOCK_DEFAULT_ORDER = ["cold-storage", "portfolio", "chats", "hub", "profile", "kaposts", "broadcasts", "swaps", "apps"];
+const DOCK_DEFAULT = ["cold-storage", "portfolio", "chats", "hub", "profile"];
+const HUB_DEFAULT = ["kaposts", "broadcasts", "swaps", "apps"];
+/** Full names, used in the Hub grid and Customize Dock where a dock label is too short. */
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", "cold-storage": "Cold Storage" };
+
+function tabFullName(tab) {
+  if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
+  const btn = document.querySelector(`.sidebar-tab[data-app-tab="${tab}"] > span:last-child`);
+  return btn?.textContent?.trim() || tab;
+}
+
+/** The tab's dock glyph, cloned out of its dock button so the two can never drift apart. */
+function tabIconMarkup(tab) {
+  const icon = document.querySelector(`.sidebar-tab[data-app-tab="${tab}"] .sidebar-tab-icon`);
+  return icon ? icon.innerHTML : "";
+}
 
 function loadDockPrefs() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(accountScopedKey(DOCK_PREFS_KEY)) || "null");
-    if (parsed && typeof parsed === "object") {
-      const hiddenTabs = Array.isArray(parsed.hiddenTabs) ? parsed.hiddenTabs : [];
-      const order = Array.isArray(parsed.order) ? parsed.order : [...DOCK_DEFAULT_ORDER];
-      // Apps is opt-in: if this saved config predates the Apps tab (not in its
-      // order), hide it once so it only appears after the user enables it.
-      if (!order.includes("apps") && !hiddenTabs.includes("apps")) hiddenTabs.push("apps");
-      return { hiddenTabs, order };
+  const stored = (() => {
+    try { return JSON.parse(localStorage.getItem(accountScopedKey(DOCK_PREFS_KEY)) || "null"); }
+    catch { return null; }
+  })();
+
+  // 4.0 blobs were { hiddenTabs, order } against a dock with no cap. Read them into placement:
+  // the order's first entries fill the dock up to the cap and everything else - including what
+  // used to be "hidden", since there is no off state any more - lands in the Hub.
+  if (stored && Array.isArray(stored.hiddenTabs) && !Array.isArray(stored.dock)) {
+    const order = (Array.isArray(stored.order) ? stored.order : DOCK_DEFAULT_ORDER)
+      .filter((t) => DOCK_ASSIGNABLE.includes(t) && !stored.hiddenTabs.includes(t));
+    const dock = [];
+    for (const tab of order) {
+      if (dock.length >= DOCK_MAX_ITEMS - DOCK_PINNED.length) break;
+      dock.push(tab);
     }
-  } catch { /* fall through */ }
-  // Migration: adopt the old global hiddenTabs the first time an account loads.
-  // Fresh installs get the Apps tab hidden by default (opt-in in Customize Dock).
-  const legacy = Array.isArray(accountShellPrefs.hiddenTabs) ? accountShellPrefs.hiddenTabs : [];
-  return { hiddenTabs: [...new Set([...legacy, "apps"])], order: [...DOCK_DEFAULT_ORDER] };
+    return normalizeDockPrefs({ dock, hub: [] });
+  }
+
+  if (stored && Array.isArray(stored.dock)) return normalizeDockPrefs(stored);
+  return normalizeDockPrefs({ dock: [...DOCK_DEFAULT], hub: [...HUB_DEFAULT] });
+}
+
+/** Resolves any stored pair into a legal arrangement: pinned present, cap respected, every
+ *  assignable tab in exactly one list. Anything a stored list has never heard of (a tab added by
+ *  an update) is appended in default order rather than lost. */
+function normalizeDockPrefs(prefs) {
+  const seen = new Set();
+  const dock = [];
+  for (const tab of Array.isArray(prefs.dock) ? prefs.dock : []) {
+    if (!DOCK_ASSIGNABLE.includes(tab) && !DOCK_PINNED.includes(tab)) continue;
+    if (seen.has(tab) || dock.length >= DOCK_MAX_ITEMS) continue;
+    seen.add(tab); dock.push(tab);
+  }
+  // Reinserted whatever the stored list says, so no saved arrangement can leave the app without
+  // the Hub that holds everything else, or without Profile.
+  for (const pinned of DOCK_PINNED) {
+    if (seen.has(pinned)) continue;
+    if (dock.length >= DOCK_MAX_ITEMS) dock.pop();
+    const at = Math.min(DOCK_DEFAULT.indexOf(pinned), dock.length);
+    dock.splice(at < 0 ? dock.length : at, 0, pinned);
+    seen.add(pinned);
+  }
+  const hub = [];
+  for (const tab of Array.isArray(prefs.hub) ? prefs.hub : []) {
+    if (!DOCK_ASSIGNABLE.includes(tab) || seen.has(tab)) continue;
+    seen.add(tab); hub.push(tab);
+  }
+  for (const tab of DOCK_DEFAULT_ORDER) {
+    if (!DOCK_ASSIGNABLE.includes(tab) || seen.has(tab)) continue;
+    seen.add(tab); hub.push(tab);
+  }
+  return { dock, hub };
 }
 
 let dockPrefs = loadDockPrefs();
@@ -6706,29 +6585,26 @@ function persistDockPrefs() {
 
 function reloadDockPrefsForAccount() {
   dockPrefs = loadDockPrefs();
+  hubSection = null;
   applyDockLayout();
 }
 
-function isTabHidden(tab) {
-  return dockPrefs.hiddenTabs.includes(tab);
+/** Child Mode is applied at RENDER time and never written into the stored arrangement - saving
+ *  while it is on would bake those tabs out permanently, so turning it off restores the user's
+ *  own layout untouched. This is the single choke point, so a gated tab reaches neither the dock
+ *  nor the Hub grid. */
+function tabAllowed(tab) {
+  return !(isChildModeEnabled() && CHILD_HIDDEN_TABS.includes(tab));
 }
 
-function dockResolvedOrder() {
-  const known = DOCK_DEFAULT_ORDER;
-  const order = dockPrefs.order.filter((t) => known.includes(t));
-  return [...order, ...known.filter((t) => !order.includes(t))];
-}
-
-/** The tabs the dock actually renders, in order — every enabled tab, no cap.
- * Child Mode is applied here, DERIVED at render time and never written into the
- * per-account dock prefs (persisting while ON would permanently bake tabs
- * hidden — the iOS lesson), so turning it off restores the user's own layout. */
+/** What the dock actually renders, in order. */
 function dockVisibleTabs() {
-  const childMode = isChildModeEnabled();
-  return dockResolvedOrder().filter((t) => {
-    if (childMode && CHILD_HIDDEN_TABS.includes(t)) return false;
-    return DOCK_ALWAYS_VISIBLE.includes(t) || !isTabHidden(t);
-  });
+  return dockPrefs.dock.filter(tabAllowed);
+}
+
+/** What the Kaspa Hub grid shows: everything assignable that is not in the dock. */
+function hubVisibleTabs() {
+  return dockPrefs.hub.filter(tabAllowed);
 }
 
 function applyDockLayout() {
@@ -6736,50 +6612,221 @@ function applyDockLayout() {
   if (!tabbar) return;
   const visible = dockVisibleTabs();
 
-  // Order + visibility straight from the per-account prefs.
-  for (const tab of dockResolvedOrder()) {
+  for (const tab of [...visible, ...DOCK_DEFAULT_ORDER]) {
     const btn = tabbar.querySelector(`.sidebar-tab[data-app-tab="${tab}"]`);
     if (!btn) continue;
-    tabbar.appendChild(btn);
+    tabbar.appendChild(btn); // visible tabs first, in order; the rest trail behind, hidden
     btn.hidden = !visible.includes(tab);
   }
 
-  // Menu checkboxes mirror the state. While Child Mode is on, the gated tabs'
-  // rows disappear from the Customize Dock page entirely (with an explanatory
-  // footer) — their underlying prefs stay untouched.
-  const childMode = isChildModeEnabled();
-  MENU_TOGGLEABLE_TABS.forEach((tab) => {
-    const input = document.querySelector(`[data-menu-tab="${tab}"]`);
-    if (!input) return;
-    input.checked = !isTabHidden(tab);
-    const row = input.closest(".menu-tab-row");
-    if (row) row.hidden = childMode && CHILD_HIDDEN_TABS.includes(tab);
-  });
-  const childDockNote = document.querySelector("[data-child-dock-note]");
-  if (childDockNote) childDockNote.hidden = !childMode;
+  renderHubGrid();
+  renderDockEditor();
 
-  // Apps lives in either the dock OR the Profile view, never both. Once it's an enabled
-  // dock tab, drop the redundant "Apps" row from Profile; bring it back if disabled.
+  // Apps lives in either the dock OR the Profile view, never both. Once it holds a dock slot,
+  // drop the redundant "Apps" row from Profile; bring it back when it moves into the Hub.
   const profileAppsRow = document.querySelector("[data-open-apps-screen]");
-  if (profileAppsRow) profileAppsRow.hidden = !isTabHidden("apps");
+  if (profileAppsRow) profileAppsRow.hidden = visible.includes("apps");
 
-  const activeBtn = tabbar.querySelector(".sidebar-tab.active");
-  if (activeBtn && activeBtn.hidden) setActiveAppTab("chats");
+  // A tab that just left the dock must not stay on screen with nothing selected, and a Hub
+  // section that just moved INTO the dock must not render inside the Hub as well.
+  if (hubSection && !hubVisibleTabs().includes(hubSection)) {
+    hubSection = null;
+    if (currentAppTab === "hub") setActiveAppTab("hub");
+  }
+  // The tab on screen just left the dock. It has not been switched OFF - it moved to the Hub - so
+  // it reopens there rather than throwing the user back to Chats; setActiveAppTab does that
+  // routing itself. Only a tab that is in neither place (Child Mode turned it off) falls back.
+  if (!visible.includes(currentAppTab)) {
+    setActiveAppTab(hubVisibleTabs().includes(currentAppTab)
+      ? currentAppTab
+      : (visible.includes("chats") ? "chats" : "hub"));
+  }
 }
 
-function applyMenuTabVisibility() { applyDockLayout(); }
+// --- Kaspa Hub grid ---------------------------------------------------------
 
-document.querySelectorAll("[data-menu-tab]").forEach((input) => {
-  input.addEventListener("change", () => {
-    const tab = input.dataset.menuTab;
-    let hidden = [...dockPrefs.hiddenTabs];
-    if (input.checked) hidden = hidden.filter((t) => t !== tab);
-    else if (!hidden.includes(tab)) hidden.push(tab);
-    dockPrefs.hiddenTabs = hidden;
-    persistDockPrefs();
-    applyDockLayout();
+const hubGrid = document.querySelector("[data-hub-grid]");
+const hubEmpty = document.querySelector("[data-hub-empty]");
+
+function hubTileMarkup(tab) {
+  return `<button class="hub-tile" type="button" data-hub-tile="${tab}">
+    <span class="hub-tile-icon" aria-hidden="true">${tabIconMarkup(tab)}</span>
+    <span class="hub-tile-label">${escapeHtml(tabFullName(tab))}</span>
+  </button>`;
+}
+
+function renderHubGrid() {
+  if (!hubGrid) return;
+  const tabs = hubVisibleTabs();
+  hubGrid.innerHTML = tabs.map(hubTileMarkup).join("");
+  hubGrid.hidden = tabs.length === 0;
+  if (hubEmpty) hubEmpty.hidden = tabs.length > 0;
+}
+
+hubGrid?.addEventListener("click", (event) => {
+  const tile = event.target.closest("[data-hub-tile]");
+  if (!tile) return;
+  hubSection = tile.dataset.hubTile;
+  setActiveAppTab("hub");
+});
+
+// Straight to the one screen that decides what is in the dock and what is in here, rather than
+// making the user find it three levels into Settings. The row is CLICKED rather than the
+// sub-screen opened directly, so the settings screen works out its own parent category and the
+// back bar leads where it would have if the user had walked there.
+document.querySelector("[data-open-customize-dock]")?.addEventListener("click", () => {
+  openAccountOverlay();
+  document.querySelector('[data-settings-open-subscreen="dock"]')?.click();
+});
+
+// --- Customize Dock ---------------------------------------------------------
+//
+// The Hub grid up top and the dock bar along the bottom, both drawn the way they actually appear,
+// because the screen is about a layout and a list of switches was not one (iOS MenuVisibilityView).
+//
+// Two gestures, one job each. A CLICK moves a tab between the two. A DRAG only reorders, within
+// whichever section the tab is already in - dragging across to a target you cannot see while the
+// pointer is over it was the fiddly part, so moving is a click and dragging is left to the one
+// thing a click cannot express, which is position.
+
+const dockHubGrid = document.querySelector("[data-dock-hub-grid]");
+const dockPreview = document.querySelector("[data-dock-preview]");
+const dockCountEl = document.querySelector("[data-dock-count]");
+const dockHintEl = document.querySelector("[data-dock-hint]");
+const dockRefusalEl = document.querySelector("[data-dock-refusal]");
+
+function refuseDockMove(message) {
+  if (!dockRefusalEl) return;
+  dockRefusalEl.textContent = message;
+  dockRefusalEl.hidden = false;
+}
+
+function clearDockRefusal() {
+  if (dockRefusalEl) dockRefusalEl.hidden = true;
+}
+
+function renderDockEditor() {
+  const dock = dockVisibleTabs();
+  const hub = hubVisibleTabs();
+  const full = dock.length >= DOCK_MAX_ITEMS;
+
+  if (dockHubGrid) {
+    dockHubGrid.innerHTML = hub.map((tab) => `<button class="hub-tile" type="button" draggable="true" data-dock-move="hub" data-dock-tab="${tab}">
+      <span class="hub-tile-icon" aria-hidden="true">${tabIconMarkup(tab)}</span>
+      <span class="hub-tile-label">${escapeHtml(tabFullName(tab))}</span>
+    </button>`).join("");
+    dockHubGrid.hidden = hub.length === 0;
+  }
+  const hubEmptyNote = document.querySelector("[data-dock-hub-empty]");
+  if (hubEmptyNote) hubEmptyNote.hidden = hub.length > 0;
+
+  if (dockPreview) {
+    // No placeholder slots for the unused capacity: the real dock divides its whole width between
+    // however many tabs it has, so a four-tab dock is four WIDER items, not four and a gap. The
+    // count above the bar is what says how much room is left.
+    dockPreview.innerHTML = dock.map((tab) => `<button class="dock-preview-item${DOCK_PINNED.includes(tab) ? " pinned" : ""}" type="button" draggable="true" data-dock-move="dock" data-dock-tab="${tab}">
+      <span class="dock-preview-icon" aria-hidden="true">${tabIconMarkup(tab)}</span>
+      <span class="dock-preview-label">${escapeHtml(tabFullName(tab))}</span>
+    </button>`).join("");
+  }
+  if (dockCountEl) {
+    dockCountEl.textContent = `${dock.length} of ${DOCK_MAX_ITEMS}`;
+    dockCountEl.classList.toggle("full", full);
+  }
+  if (dockHintEl) {
+    dockHintEl.textContent = full
+      ? "Your dock is full. Click one of these to move it up to Kaspa Hub and free a slot. Kaspa Hub and Profile must stay in the dock."
+      : "Click a dock item to move it up to Kaspa Hub, or drag to reorder. Kaspa Hub and Profile must stay in the dock.";
+  }
+
+  const childNote = document.querySelector("[data-child-dock-note]");
+  if (childNote) childNote.hidden = !isChildModeEnabled();
+}
+
+/** Both lists are written together, so a tab can never be missing from both or in both. */
+function commitDockPrefs(dock, hub) {
+  dockPrefs = normalizeDockPrefs({ dock, hub });
+  persistDockPrefs();
+  applyDockLayout();
+}
+
+/** Click in the Hub: join the dock, at the end, where the empty slot already is. */
+function moveTabToDock(tab) {
+  if (dockVisibleTabs().length >= DOCK_MAX_ITEMS) {
+    refuseDockMove("Your dock is full. Click something in the dock to move it up here first.");
+    return;
+  }
+  clearDockRefusal();
+  commitDockPrefs([...dockPrefs.dock.filter((t) => t !== tab), tab], dockPrefs.hub.filter((t) => t !== tab));
+}
+
+/** Click in the dock: back to the Hub, at the end of the grid. */
+function moveTabToHub(tab) {
+  if (DOCK_PINNED.includes(tab)) {
+    refuseDockMove(`${tabFullName(tab)} has to stay in your dock.`);
+    return;
+  }
+  clearDockRefusal();
+  commitDockPrefs(dockPrefs.dock.filter((t) => t !== tab), [...dockPrefs.hub.filter((t) => t !== tab), tab]);
+}
+
+document.querySelectorAll("[data-dock-hub-grid], [data-dock-preview]").forEach((container) => {
+  container.addEventListener("click", (event) => {
+    if (dockEditorDragged) return; // a drag ends in a click on the item; reordering must not also move it
+    const item = event.target.closest("[data-dock-move]");
+    if (!item) return;
+    if (item.dataset.dockMove === "hub") moveTabToDock(item.dataset.dockTab);
+    else moveTabToHub(item.dataset.dockTab);
   });
 });
+
+// Drag reorders and nothing else, enforced by MEMBERSHIP rather than at the drag source: a tab
+// dragged out of the dock and dropped on a Hub tile is simply refused, instead of moving by a
+// gesture the screen says is for ordering. That is also what lets the pinned two drag freely - a
+// reorder cannot evict anything by construction.
+let dockEditorDragged = null;
+
+function reorderDockList(list, tab, target) {
+  const next = list.filter((t) => t !== tab);
+  const index = next.indexOf(target);
+  if (index < 0) return list;
+  // Read AFTER the removal. Taking the target's index from the ORIGINAL list overshoots by one
+  // whenever the tab moves forwards, which is what lands a rightward drag a slot too far.
+  next.splice(index, 0, tab);
+  return next;
+}
+
+document.querySelectorAll("[data-dock-hub-grid], [data-dock-preview]").forEach((container) => {
+  container.addEventListener("dragstart", (event) => {
+    const item = event.target.closest("[data-dock-move]");
+    if (!item) return;
+    dockEditorDragged = { tab: item.dataset.dockTab, from: item.dataset.dockMove };
+    item.classList.add("dragging");
+    try { event.dataTransfer.setData("text/plain", item.dataset.dockTab); event.dataTransfer.effectAllowed = "move"; } catch { /* optional */ }
+  });
+  container.addEventListener("dragover", (event) => {
+    if (!dockEditorDragged) return;
+    const item = event.target.closest("[data-dock-move]");
+    if (!item || item.dataset.dockMove !== dockEditorDragged.from) return;
+    event.preventDefault();
+  });
+  container.addEventListener("drop", (event) => {
+    const item = event.target.closest("[data-dock-move]");
+    if (!dockEditorDragged || !item) return;
+    event.preventDefault();
+    const { tab, from } = dockEditorDragged;
+    const target = item.dataset.dockTab;
+    if (item.dataset.dockMove !== from || target === tab) return;
+    if (from === "dock") commitDockPrefs(reorderDockList(dockPrefs.dock, tab, target), dockPrefs.hub);
+    else commitDockPrefs(dockPrefs.dock, reorderDockList(dockPrefs.hub, tab, target));
+  });
+  container.addEventListener("dragend", () => {
+    container.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));
+    // Cleared on the next frame so the click the drag ends with still sees it and is swallowed.
+    window.requestAnimationFrame(() => { dockEditorDragged = null; });
+  });
+});
+
 applyDockLayout();
 
 // --- What's-new wizard (once per install) ---------------------------------
@@ -6787,8 +6834,8 @@ applyDockLayout();
 const DOCK_WIZARD_DISMISSED_KEY = "kachat-dock-wizard-dismissed-v1";
 const DOCK_WIZARD_PAGES = [
   { title: "Meet KaPosts", body: "A social feed built on Kaspa — post, follow, and discover, fully on-chain. It lives in your dock now." },
-  { title: "The dock hides itself", body: "Your dock stays tucked away until your mouse nears the bottom of the window — glide down to bring it up." },
-  { title: "Make it yours", body: "Choose which tabs show from Settings → Customization → Menu. Each account keeps its own dock." },
+  { title: "Meet Kaspa Hub", body: "Your dock holds five items. Everything else lives one click away in Kaspa Hub, which is always in the dock." },
+  { title: "Make it yours", body: "Move features between your dock and Kaspa Hub from Settings → Customization → Customize Dock. Each account keeps its own layout." },
 ];
 let dockWizardPage = 0;
 
@@ -14850,6 +14897,10 @@ async function finalizeNewAccount({ name, phrase, passphrase, wordCount }) {
   localStorage.removeItem(SESSION_LOGGED_OUT_KEY);
   markSessionActive();
   hideLoggedOutScreen();
+  // A brand-new account lands on Chats. The remembered spot is the LAST session's tab, which
+  // belongs to a different account entirely - being dropped into Profile (or Cold Storage) on
+  // an account that has neither a profile nor any funds yet is nobody's idea of where to start.
+  setActiveAppTab("chats");
   currentBalanceKas = "--";
   updateWalletUi();
   updateServiceSummary();
@@ -15824,6 +15875,8 @@ async function importAndEnterAccount({ name, recoveryPhrase, passphrase = "", fa
   markSessionActive();
   localStorage.removeItem(SESSION_LOGGED_OUT_KEY);
   hideLoggedOutScreen();
+  // As with create: an imported account starts on its chats, not on the last account's tab.
+  setActiveAppTab("chats");
   currentBalanceKas = "--";
   updateWalletUi();
   updateServiceSummary();

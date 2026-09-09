@@ -125,6 +125,9 @@ button { cursor: pointer; }
   flex: 1;
   min-height: 0;
   display: flex;
+  /* The dock floats over the bottom of every screen now, so every screen reserves its height -
+     otherwise the last row of a list, or a composer, sits underneath it. */
+  padding-bottom: 92px;
 }
 
 .app-sidebar {
@@ -152,70 +155,33 @@ button { cursor: pointer; }
 .sidebar-scroll > .empty-state-card { margin: auto; }
 .sidebar-scroll > .chat-list { flex: 1; }
 
-/* Step 103 — 5-tab bottom-center navigation (Cold Storage, Portfolio, Chats,
-   Swaps, Profile), matching the mobile apps' "3.0" floating-pill tab bar.
-   Fixed position and kept OUTSIDE .app-sidebar/.app-detail so it stays
-   visible and clickable no matter which of those two gets hidden while
-   switching tabs — otherwise hiding the sidebar to show a placeholder screen
-   would also hide the only way back to another tab. Centered on the window
-   rather than pinned under the sidebar, so it reads as its own persistent
-   control surface on every screen, not a sidebar-only footer. */
+/* The dock (4.1): a bottom-centered floating pill, on screen on every tab, always.
+   4.0 tucked it off the right edge behind a hover handle; nothing else in the app works that way
+   and the phones' dock is simply always there, so the handle and the auto-hide went with it.
+   Fixed, and kept OUTSIDE .app-sidebar/.app-detail so hiding either of those while switching tabs
+   can never take the only way back with it. */
 .sidebar-tabbar {
   position: fixed;
-  /* 4.0 desktop: a VERTICAL dock docked to the right edge, hidden by default and revealed by
-     the obvious right-edge handle (hover to peek, click to pin) — see .dock-handle below and
-     the wiring in app.js. No more automatic bottom-edge pop-out. */
-  top: 50%;
-  right: 34px;
-  transform: translateY(-50%);
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 400;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: #0d1116;
-  padding: 10px 8px;
+  padding: 8px 10px;
   box-shadow: 0 16px 44px rgba(0,0,0,.45);
-  max-height: 92vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
 }
-
-/* Right-edge handle: always visible, obvious, and the only way to open the dock. */
-.dock-handle {
-  position: fixed;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
-  z-index: 401;
-  width: 26px;
-  height: 70px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-right: 0;
-  border-radius: 14px 0 0 14px;
-  background: #0d1116;
-  color: var(--muted);
-  cursor: pointer;
-  box-shadow: -6px 0 18px rgba(0,0,0,.35);
-  transition: color .15s ease, background-color .15s ease;
-}
-.dock-handle:hover { color: var(--text); background: var(--surface-2); }
-.dock-handle svg {
-  width: 18px; height: 18px;
-  fill: none; stroke: currentColor; stroke-width: 2.2;
-  stroke-linecap: round; stroke-linejoin: round;
-  transition: transform .28s cubic-bezier(.2,.9,.3,1);
-}
-/* Chevron points left (open me) by default; flips to point right (close) when the dock is open. */
-.dock-handle.open svg { transform: rotate(180deg); }
 
 .sidebar-tab {
   flex: 0 0 auto;
-  width: 76px;
+  width: 84px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -225,21 +191,13 @@ button { cursor: pointer; }
   border-radius: 16px;
   background: transparent;
   color: var(--muted);
-  cursor: grab;
-  transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease;
-  touch-action: none; /* let pointer drags reorder instead of scrolling/panning */
+  cursor: pointer;
+  transition: color .16s ease, background-color .16s ease;
 }
 
-/* Drag-to-reorder: the dock arms grab-mode while an item is picked up, and the lifted
-   item floats above its neighbors until dropped. */
-.sidebar-tabbar.reordering { cursor: grabbing; }
-.sidebar-tabbar.reordering .sidebar-tab { cursor: grabbing; }
-.sidebar-tab.dragging {
-  transform: translateY(-6px) scale(1.06);
-  background: var(--surface-2);
-  box-shadow: 0 10px 24px rgba(0,0,0,.5);
-  z-index: 2;
-}
+/* The live dock is not rearranged in place - reordering is Customize Dock's job, the way it is on
+   the phones, so a stray drag on the thing you navigate with cannot rebuild your layout. */
+.sidebar-tab-logo { width: 24px; height: 24px; object-fit: contain; display: block; }
 
 .sidebar-tab:hover .sidebar-tab-icon { background: var(--surface-2); }
 
@@ -326,7 +284,7 @@ button { cursor: pointer; }
 .new-chat-fab {
   position: fixed;
   right: 28px;
-  bottom: 28px;
+  bottom: 106px; /* clear of the dock, which is now permanently on screen */
   z-index: 500;
   width: 58px;
   height: 58px;
@@ -358,9 +316,7 @@ button { cursor: pointer; }
   .app-detail { display: none; }
   .app-body.detail-active .app-sidebar { display: none; }
   .app-body.detail-active .app-detail { display: flex; flex: 1 1 auto; width: 100%; }
-  .app-body.conversation-open ~ .sidebar-tabbar,
-  .app-body.conversation-open ~ .dock-handle { display: none; }
-  .sidebar-tabbar { right: 20px; left: auto; }
+  .app-body.conversation-open ~ .sidebar-tabbar { display: none; }
   .sidebar-scroll { padding-bottom: 16px; }
 }
 
@@ -3663,11 +3619,6 @@ body.session-logged-out [data-account-rename-modal] {
 }
 
 /* Menu customization rows (Settings > Menu). */
-.menu-tab-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 2px; }
-.menu-tab-row + .menu-tab-row { border-top: 1px solid var(--line); }
-.menu-tab-label { display: flex; align-items: center; gap: 11px; font-size: 14px; font-weight: 600; color: var(--text); }
-.menu-tab-label svg { width: 19px; height: 19px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; color: var(--kaspa-ink); }
-.menu-tab-locked { flex: 0 0 auto; font-size: 12px; color: var(--muted); font-weight: 600; }
 
 .settings-toggle-row.settings-segmented-row { align-items: center; }
 
@@ -5959,16 +5910,113 @@ body.session-logged-out [data-account-rename-modal] {
 
 
 /* ============================================================
-   Dock reveal (4.0 desktop): the vertical dock stays tucked off
-   the right edge until the right-edge handle reveals it.
+   Kaspa Hub (iOS EcosystemView) and Customize Dock.
+   Three across, square tiles, so a tile is the size and shape it will be whatever it is called -
+   the label is laid OVER a square canvas rather than sizing it, which is what keeps a two-line
+   name from growing that one tile alone.
    ============================================================ */
-.sidebar-tabbar {
-  transition: transform .28s cubic-bezier(.2,.9,.3,1), opacity .22s ease;
+.hub-screen { display: flex; flex-direction: column; min-height: 0; }
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  /* Capped and centered: three square tiles across an unbounded desktop window would each be the
+     size of a playing card box. On a phone-width window the cap never binds, so it looks the way
+     it does on iOS. */
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 16px 24px;
+  overflow-y: auto;
 }
-.sidebar-tabbar.dock-hidden {
-  transform: translateY(-50%) translateX(calc(100% + 48px));
-  opacity: 0;
-  pointer-events: none;
+.hub-tile {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 18px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform .14s ease, border-color .14s ease, background-color .14s ease;
+}
+.hub-tile:hover { border-color: rgba(98,244,208,.45); transform: translateY(-2px); }
+.hub-tile.dragging { opacity: .45; }
+.hub-tile-icon { display: grid; place-items: center; height: 30px; color: var(--kaspa-ink); }
+.hub-tile-icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hub-tile-icon img { width: 26px; height: 26px; object-fit: contain; }
+.hub-tile-label { font-size: 12px; font-weight: 650; text-align: center; line-height: 1.3; }
+.hub-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 60px 32px; text-align: center; }
+.hub-empty-logo { width: 44px; height: 44px; opacity: .5; }
+.hub-empty h3 { margin: 0; font-size: 16px; }
+.hub-empty p { margin: 0; max-width: 42ch; font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+.dock-editor { display: grid; gap: 12px; }
+.dock-editor-head { display: flex; flex-direction: column; gap: 4px; }
+.dock-editor-head strong { font-size: 14px; }
+.dock-editor-head small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.dock-editor-head-split { flex-direction: row; align-items: baseline; justify-content: space-between; }
+.dock-editor-head-split strong { white-space: nowrap; }
+/* The settings form's own span rule stretches this to fill the row, so the count is right-ALIGNED
+   rather than right-positioned - space-between has nothing to push when one item already fills. */
+.dock-editor-count { font-size: 12px; color: var(--muted); text-align: right; }
+.dock-editor-count.full { color: #f5a623; }
+.dock-editor-grid { padding: 0; overflow: visible; }
+.dock-editor-empty {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1.5px dashed rgba(255,255,255,.25);
+  border-radius: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dock-editor-refusal { color: #f5a623; }
+/* The dock drawn the way it is drawn for real, because the point of the screen is that it looks
+   like the thing being arranged. No placeholder slots for the spare capacity: the real dock
+   divides its width between however many items it has, so a preview with a gap on the right would
+   be showing an arrangement nobody is going to see. The count says how much room is left. */
+.dock-editor-preview {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: #0d1116;
+}
+.dock-preview-item {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.dock-preview-item:hover { background: var(--surface-2); }
+.dock-preview-item.dragging { opacity: .45; }
+/* Pinned items are dimmed rather than hidden: they hold their real position, and the dimming is
+   what says "this one is not yours to move OUT" before you click it. Dragging them is still fine,
+   because a reorder cannot evict anything. */
+.dock-preview-item.pinned { opacity: .55; }
+.dock-preview-icon { display: grid; place-items: center; height: 24px; }
+.dock-preview-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dock-preview-icon img { width: 22px; height: 22px; object-fit: contain; }
+.dock-preview-label { font-size: 10px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-editor-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; text-align: center; }
+
+@media (max-width: 859px) {
+  .hub-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 }
 
 /* KaPosts social layer: panels, popovers, profile hero, notification rows */
@@ -8270,8 +8318,6 @@ body.session-logged-out [data-account-rename-modal] {
    the active tab carrying the teal tint. The handle is removed entirely.
    --------------------------------------------------------------------------- */
 @media (max-width: 859px) {
-  .dock-handle { display: none !important; }
-
   .sidebar-tabbar {
     top: auto;
     bottom: 0;
@@ -8287,15 +8333,9 @@ body.session-logged-out [data-account-rename-modal] {
     border: 0;
     border-top: 1px solid var(--line);
     border-radius: 0;
+    max-width: none; /* full-width bar here, not the desktop pill */
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
     box-shadow: 0 -10px 30px rgba(0,0,0,.45);
-  }
-
-  /* The dock is permanent on touch: never let the desktop hover/pin state hide it. */
-  .sidebar-tabbar.dock-hidden {
-    transform: none;
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .sidebar-tab {
