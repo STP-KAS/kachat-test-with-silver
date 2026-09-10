@@ -1121,6 +1121,18 @@ button { cursor: pointer; }
   margin-bottom: 18px;
 }
 
+/* `.modal-head` had no rule anywhere, so the two places using it stacked the close button under
+   the title instead of putting it at the trailing edge. Same layout as `.modal-header`, which is
+   plainly what both were reaching for. */
+.modal-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.modal-head h2 { margin: 0; font-size: 24px; letter-spacing: -.03em; }
+
 .modal-kicker {
   margin: 0 0 4px;
   color: var(--kaspa-ink);
@@ -6943,6 +6955,49 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-send-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
 .cold-send-row span:first-child { color: var(--muted); }
 .cold-send-row code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+/* Coin Control: the row that opens the picker, and the picker itself (iOS CoinControlView). */
+.cold-send-coincontrol-row {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--card-border, var(--line));
+  border-radius: 12px;
+  background: var(--surface-1, rgba(255,255,255,.04));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+}
+.cold-send-coincontrol-row:hover { border-color: rgba(98,244,208,.35); }
+.cold-send-coincontrol-row > span:first-child { color: var(--text); font-weight: 650; }
+.cold-send-row-value { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.cold-coincontrol-actions { display: flex; gap: 16px; }
+.cold-coincontrol-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 320px; overflow-y: auto;
+  padding: 2px;
+}
+.cold-coincontrol-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border, var(--line));
+  border-radius: 12px;
+  background: var(--surface-1, rgba(255,255,255,.04));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.cold-coincontrol-row:hover { border-color: rgba(98,244,208,.35); }
+.cold-coincontrol-row.selected { border-color: var(--kaspa, #62f4d0); background: rgba(98,244,208,.09); }
+.cold-coincontrol-check { display: grid; place-items: center; color: var(--muted); flex: 0 0 auto; }
+.cold-coincontrol-row.selected .cold-coincontrol-check { color: var(--kaspa-ink); }
+.cold-coincontrol-check svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cold-coincontrol-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cold-coincontrol-label { font-size: 11.5px; font-weight: 700; color: var(--kaspa-ink); }
+.cold-coincontrol-amount { font-size: 13.5px; font-weight: 650; }
+.cold-coincontrol-outpoint { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
+.cold-coincontrol-total { text-align: center; }
+
 .cold-send-status { margin: 4px 0 0; font-size: 12px; }
 .cold-send-status.good { color: #30d158; }
 .cold-send-status.bad { color: #ff6b60; }

@@ -17,6 +17,7 @@ import {
   calculateMass, calculateFee, fetchQuotedFeeRateSompiPerGram,
   buildUnsignedTransaction, previewAutomaticSelection, estimateMaxAmount,
   compoundInputs, unsignedToKsptBytes, broadcastSigned, isValidKaspaAddress,
+  fetchSpendableUtxos, utxoKey,
 } from "./kspt.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 
@@ -285,6 +286,8 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
 const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+const CHECK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M8 12.4l2.6 2.6L16 9.6"/></svg>`;
+const CIRCLE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/></svg>`;
 const EYE_SLASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.9 9.9 0 0 1 12 5c5 0 9 4.5 10 7a15.5 15.5 0 0 1-3.2 4.2"/><path d="M6.5 6.9C4.4 8.3 2.7 10.3 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 4.4-1.05"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
 
 const CHECKLIST_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 2 2 3-3"/><path d="M11 6h10"/><path d="m3 12.5 2 2 3-3"/><path d="M11 12.5h10"/><path d="m3 19 2 2 3-3"/><path d="M11 19h10"/></svg>`;
@@ -867,6 +870,12 @@ async function openSendFlow({ compound = false } = {}) {
     liveFeeRate: null,
     preview: null,
     manualUtxoKeys: null,
+    // Coin Control (iOS CoinControlView): the address's spendable set, loaded on demand when the
+    // picker is opened, and the keys ticked in it. `manualUtxoKeys` stays the one thing the build
+    // reads, so a manual selection and compound's fixed set travel the same path.
+    coinControlUtxos: null,
+    coinControlLoading: false,
+    coinControlSelection: [],
     compoundHasMore: false,
     estimatingMax: false,
     error: null,
@@ -1010,6 +1019,49 @@ async function sendSetMax() {
   } catch { /* leave amount as-is */ }
   if (!send) return;
   send.estimatingMax = false;
+  scheduleSendPreview();
+  renderSendFlow();
+}
+
+/// Opens the picker, loading the address's spendable set on first use.
+///
+/// Seeded from whatever is already selected, so reopening it shows the current choice rather than
+/// starting blank - and the set is re-fetched each time, because a UTXO spent elsewhere since the
+/// last look must not still be tickable.
+async function openCoinControl() {
+  if (!send) return;
+  send.step = "coincontrol";
+  send.coinControlLoading = true;
+  send.coinControlSelection = send.manualUtxoKeys ? [...send.manualUtxoKeys] : [];
+  renderSendFlow();
+  let utxos = [];
+  try {
+    utxos = await fetchSpendableUtxos(deps.engine, send.fromAddress);
+  } catch (error) {
+    if (!send) return;
+    deps.showToast?.(error.message || "Could not read this address's UTXOs.");
+  }
+  if (!send || send.step !== "coincontrol") return;
+  // Largest first, matching the automatic selector's own order, so the list reads the way the
+  // wallet would have spent it.
+  send.coinControlUtxos = [...utxos].sort((a, b) =>
+    (a.amountSompi > b.amountSompi ? -1 : a.amountSompi < b.amountSompi ? 1 : 0));
+  // Drop anything that has been spent since the selection was made, rather than carrying a key
+  // the build would fail on.
+  const live = new Set(send.coinControlUtxos.map(utxoKey));
+  send.coinControlSelection = send.coinControlSelection.filter((k) => live.has(k));
+  send.coinControlLoading = false;
+  renderSendFlow();
+}
+
+/// Confirms the picker. An empty selection means AUTOMATIC, not "spend nothing" - the same
+/// nil-means-automatic contract iOS passes back from CoinControlView.
+function commitCoinControl() {
+  if (!send) return;
+  send.manualUtxoKeys = send.coinControlSelection.length ? [...send.coinControlSelection] : null;
+  send.step = "form";
+  // The fee depends on the input count, and the automatic preview is only meaningful without a
+  // manual set, so both have to be recomputed rather than left showing the previous answer.
   scheduleSendPreview();
   renderSendFlow();
 }
@@ -1276,11 +1328,66 @@ function renderSendFlow() {
           : `<button class="cold-inline-link" type="button" data-cold-send-fee-edit>~${feeText} KAS ✎</button>`}
       </div>
       <p class="field-hint">If the network is busy, Fast or Priority pays a higher fee to help this confirm sooner. Tap the fee amount to set a custom fee.</p>
+      ${send.isCompound ? "" : `
+      <button type="button" class="cold-send-row cold-send-coincontrol-row" data-cold-open-coincontrol>
+        <span>Coin Control</span>
+        <span class="cold-send-row-value">${send.manualUtxoKeys?.length
+          ? `${send.manualUtxoKeys.length} UTXO${send.manualUtxoKeys.length === 1 ? "" : "s"} selected`
+          : "Automatic"}<svg class="settings-dropdown-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>
+      </button>
+      <p class="field-hint">Choose exactly which UTXOs to spend instead of selecting automatically.</p>`}
       ${send.error ? `<p class="field-error">${deps.escapeHtml(send.error)}</p>` : ""}
       <div class="modal-actions">
         <button class="secondary-button" type="button" data-cold-send-close>Cancel</button>
         <button class="primary-button" type="submit" data-cold-send-build ${(!canBuild || building) ? "disabled" : ""}>
           ${building ? "Building…" : "Build Unsigned Transaction"}
+        </button>
+      </div>`;
+    return;
+  }
+
+  if (send.step === "coincontrol") {
+    const labels = coldUtxoLabels(send.fromAddress);
+    const selected = new Set(send.coinControlSelection);
+    const utxos = send.coinControlUtxos || [];
+    const selectedTotal = utxos
+      .filter((u) => selected.has(utxoKey(u)))
+      .reduce((sum, u) => sum + BigInt(u.amountSompi), 0n);
+    body.innerHTML = `
+      <div class="modal-head">
+        <div><p class="modal-kicker">Cold Storage</p><h2>Coin Control</h2></div>
+        <button class="modal-close" type="button" data-cold-coincontrol-cancel aria-label="Close">×</button>
+      </div>
+      ${send.coinControlLoading
+        ? `<p class="field-hint">Loading this address's UTXOs…</p>`
+        : utxos.length === 0
+          ? `<p class="field-hint">No UTXOs found at this address.</p>`
+          : `
+      <div class="cold-coincontrol-actions">
+        <button type="button" class="cold-inline-link" data-cold-coincontrol-all>Select All</button>
+        <button type="button" class="cold-inline-link" data-cold-coincontrol-none>Automatic (Clear Selection)</button>
+      </div>
+      <div class="cold-coincontrol-list">
+        ${utxos.map((utxo) => {
+          const key = utxoKey(utxo);
+          const isOn = selected.has(key);
+          const label = labels[key];
+          return `
+          <button type="button" class="cold-coincontrol-row${isOn ? " selected" : ""}" data-cold-coincontrol-toggle="${deps.escapeHtml(key)}">
+            <span class="cold-coincontrol-check" aria-hidden="true">${isOn ? CHECK_ICON : CIRCLE_ICON}</span>
+            <span class="cold-coincontrol-copy">
+              ${label ? `<span class="cold-coincontrol-label">${deps.escapeHtml(label)}</span>` : ""}
+              <span class="cold-coincontrol-amount">${fmtKasExact(utxo.amountSompi)} KAS</span>
+              <span class="cold-coincontrol-outpoint">${deps.escapeHtml(String(utxo.transactionId).slice(0, 10))}…:${utxo.index}</span>
+            </span>
+          </button>`;
+        }).join("")}
+      </div>
+      ${selected.size ? `<p class="field-hint cold-coincontrol-total">Selected: ${fmtKasExact(selectedTotal)} KAS (${selected.size} UTXO${selected.size === 1 ? "" : "s"})</p>` : ""}`}
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-cold-coincontrol-cancel>Cancel</button>
+        <button class="primary-button" type="button" data-cold-coincontrol-done ${send.coinControlLoading ? "disabled" : ""}>
+          ${selected.size ? "Confirm Selection" : "Use Automatic Selection"}
         </button>
       </div>`;
     return;
@@ -1514,6 +1621,35 @@ function buildModals() {
       return;
     }
     if (event.target.closest("[data-cold-send-max]")) { sendSetMax(); return; }
+
+    // --- Coin Control -------------------------------------------------------
+    if (event.target.closest("[data-cold-open-coincontrol]")) { openCoinControl(); return; }
+    if (event.target.closest("[data-cold-coincontrol-cancel]")) {
+      // Cancel leaves the existing selection alone - it is a way out of the picker, not a reset.
+      send.step = "form";
+      renderSendFlow();
+      return;
+    }
+    if (event.target.closest("[data-cold-coincontrol-all]")) {
+      send.coinControlSelection = (send.coinControlUtxos || []).map(utxoKey);
+      renderSendFlow();
+      return;
+    }
+    if (event.target.closest("[data-cold-coincontrol-none]")) {
+      send.coinControlSelection = [];
+      renderSendFlow();
+      return;
+    }
+    const ccToggle = event.target.closest("[data-cold-coincontrol-toggle]");
+    if (ccToggle) {
+      const key = ccToggle.dataset.coldCoincontrolToggle;
+      send.coinControlSelection = send.coinControlSelection.includes(key)
+        ? send.coinControlSelection.filter((k) => k !== key)
+        : [...send.coinControlSelection, key];
+      renderSendFlow();
+      return;
+    }
+    if (event.target.closest("[data-cold-coincontrol-done]")) { commitCoinControl(); return; }
     if (event.target.closest("[data-cold-send-unit]")) {
       if (!send.price || send.price <= 0) { deps.showToast?.("KAS price unavailable right now."); return; }
       // Convert the currently-typed value into the new unit so it stays equivalent (iOS
