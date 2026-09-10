@@ -149,21 +149,26 @@ button { cursor: pointer; }
   /* Containing block for the compose button, which floats over the chats list rather than over the
      window - see .new-chat-fab. */
   position: relative;
-  /* Reclaim the dock's reserved strip so the list reaches the bottom of the window and passes
-     BEHIND the dock. Stopping short of it left a hard horizontal edge partway down the screen,
-     with the chat rows cut off against nothing - the list looked truncated rather than scrolled.
-     The scroll content below pads by the same amount, so the last row still ends up clear of the
-     dock; it just gets there by scrolling under it, the way the phones do it. */
+  /* Two halves of one idea. The negative margin reclaims the dock's reserved strip so the pane's
+     background and right border reach the bottom of the window - stopping short of it left a hard
+     horizontal edge partway down the screen, as though the app had run out. The padding then puts
+     that strip back INSIDE the pane, so the rows themselves still end above the dock and never
+     slide behind it. Backdrop to the bottom, content clear of the dock.
+
+     It also gives the compose button the frame it wants: an absolutely positioned child measures
+     from the padding box, so its `bottom` is distance from the window's bottom edge, which is what
+     lets it line up with the dock. */
   margin-bottom: calc(-1 * var(--dock-inset));
+  padding-bottom: var(--dock-inset);
 }
 
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Bottom inset clears the dock AND the compose button, so the last chat in a full list can be
-     scrolled out from under both instead of being stranded there. */
-  padding: 0 12px calc(var(--dock-inset) + 90px);
+  /* The dock is the pane's own padding now, so this only has to clear the compose button, which
+     overlaps the last ~52px of the list. */
+  padding: 0 12px 76px;
   display: flex;
   flex-direction: column;
 }
@@ -334,6 +339,8 @@ button { cursor: pointer; }
    Level any earlier and the button would sit on top of the dock, covering the tabs. */
 @media (min-width: 1440px) {
   .new-chat-fab { bottom: 35px; }
+  /* Down there the button sits entirely below the list, so the list needs no room for it. */
+  .sidebar-scroll { padding-bottom: 24px; }
 }
 
 /* Narrow fallback: below 860px, only one of sidebar/detail is visible at a time,
@@ -4780,9 +4787,6 @@ body.session-logged-out [data-account-rename-modal] {
 /* Bottom action bar shown while selecting chats. */
 .app-sidebar:has(.chat-selection-bar:not([hidden])) .new-chat-fab { display: none; }
 .chat-selection-bar {
-  /* Sits above the dock rather than under it - the list may scroll behind the dock, but a bar of
-     buttons cannot. */
-  margin-bottom: var(--dock-inset);
   display: flex;
   gap: 8px;
   padding: 10px 14px;
