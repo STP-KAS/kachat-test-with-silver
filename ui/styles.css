@@ -7000,6 +7000,12 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-hashrate-value { font-size: 20px; font-weight: 800; }
 .portfolio-hashrate-card svg:not(.portfolio-hashrate-ico svg) { margin-left: auto; }
 .portfolio-converter { display: flex; flex-direction: column; gap: 10px; }
+/* The app's own confirm / prompt / choose overlays, replacing the browser's, which announce
+   themselves as "localhost says" - the browser talking about the page rather than the app talking
+   to its user. */
+.app-dialog-backdrop { z-index: 3000; }
+.app-dialog { max-width: 460px; }
+.app-dialog .field-hint + .field-hint { margin-top: 8px; }
 /* Stats one per row, label left and value right with a divider between (iOS `statRow`). A
    two-column grid squeezed four figures onto two lines and left the reader matching labels to
    values by position. */

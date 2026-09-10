@@ -18,6 +18,7 @@ import {
   normalizeBroadcastChannel,
   sendBroadcastMessage,
 } from "../engine/broadcasts.js";
+import { confirmText, promptText } from "./dialogs.js";
 
 const CHANNELS_KEY = "kachat-broadcast-channels-v1";        // account-scoped: ["name", ...]
 const HIDDEN_KEY = "kachat-broadcast-hidden-v1";            // account-scoped: { [channel]: [address, ...] }
@@ -1290,7 +1291,7 @@ export function initBroadcasts(dependencies) {
   document.querySelector("[data-broadcast-voice-cancel]")?.addEventListener("click", () => voiceRecorder?.stop(true));
 
   const screen = document.querySelector('[data-app-tab-screen="broadcasts"]');
-  screen?.addEventListener("click", (event) => {
+  screen?.addEventListener("click", async (event) => {
     const react = event.target.closest("[data-broadcast-react]");
     if (react) {
       event.stopPropagation();
@@ -1301,7 +1302,7 @@ export function initBroadcasts(dependencies) {
     const leave = event.target.closest("[data-broadcast-leave]");
     if (leave) {
       event.stopPropagation();
-      if (window.confirm(`Leave #${leave.dataset.broadcastLeave}?\n\nLeaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone. Rejoining later starts with no history.`)) {
+      if (await confirmText(`Leave #${leave.dataset.broadcastLeave}?\n\nLeaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone. Rejoining later starts with no history.`)) {
         leaveChannel(leave.dataset.broadcastLeave);
       }
       return;
@@ -1366,7 +1367,7 @@ export function initBroadcasts(dependencies) {
       event.stopPropagation();
       const name = retention.dataset.broadcastRetention;
       const current = Number(retentionByChannel[name] || 0);
-      const answer = window.prompt(
+      const answer = await promptText(
         `Keep #${name} messages for how many days on this device?\n0 = keep forever. Older messages are deleted from this device only.`,
         String(current),
       );
@@ -1403,7 +1404,7 @@ export function initBroadcasts(dependencies) {
     if (sender) {
       const address = sender.dataset.broadcastSender;
       if (address && address !== deps.engine.address &&
-          window.confirm(`Hide ${senderName(address)} in #${activeChannel}? Their messages disappear from this room only.`)) {
+          await confirmText(`Hide ${senderName(address)} in #${activeChannel}? Their messages disappear from this room only.`)) {
         hideSender(address);
       }
       return;

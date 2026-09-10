@@ -42,6 +42,7 @@ import { registrationAmounts as knsRegistrationAmounts, PROFILE_FIELD_EDIT_ORDER
 // icon in the notification and on the KAS mark).
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import kachatLogoUrl from "./assets/kachat-logo.png";
+import { confirmText, promptText } from "./dialogs.js";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -5799,7 +5800,7 @@ spendingListEl?.addEventListener("click", async (event) => {
       openChattingAddressScreen({ address: addr, balanceText: cell?.textContent || "", subtitle: null });
     } else if (action === "rename") {
       const current = spendingLabelFor(state, index);
-      const next = window.prompt("Label for this spending address", current);
+      const next = await promptText("Label for this spending address", current);
       if (next == null) return;
       const labels = { ...state.labels };
       const trimmed = String(next).trim();
@@ -6040,7 +6041,7 @@ async function consolidateSpendingDetailUtxos() {
   if (entries.length < 2) { showCopyToast("Nothing to consolidate — this address has a single UTXO."); return; }
   const maxKas = Number(balance.totalKas) - 0.001; // headroom for the network fee (many inputs)
   if (!(maxKas > 0)) { showCopyToast("Balance too low to consolidate."); return; }
-  if (!window.confirm(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
+  if (!await confirmText(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
   spendingConsolidateInFlight = true;
   showCopyToast("Consolidating UTXOs…");
   try {
@@ -6239,7 +6240,7 @@ spendingConsolidateBtn?.addEventListener("click", async () => {
     if (!sources.length) { showCopyToast("No non-primary spending addresses hold a balance."); return; }
 
     const total = sources.reduce((sum, s) => sum + s.kas, 0);
-    const ok = window.confirm(
+    const ok = await confirmText(
       `Send all Kaspa from ${sources.length} spending address${sources.length > 1 ? "es" : ""} (~${total} KAS) to your primary spending address #${primaryIndex}?\n\nThis broadcasts ${sources.length} transaction${sources.length > 1 ? "s" : ""}.`
     );
     if (!ok) return;
@@ -7901,7 +7902,7 @@ async function consolidateManageAddressUtxos() {
   if (entries.length < 2) { showCopyToast("Nothing to consolidate — this address has a single UTXO."); return; }
   const maxKas = Number(balance.totalKas) - 0.001; // headroom for the network fee (many inputs)
   if (!(maxKas > 0)) { showCopyToast("Balance too low to consolidate."); return; }
-  if (!window.confirm(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
+  if (!await confirmText(`Combine ${entries.length} UTXOs at this address into one? This sends the balance back to this same address and pays a small network fee.`)) return;
   manageConsolidateInFlight = true;
   showCopyToast("Consolidating UTXOs…");
   try {
@@ -8545,7 +8546,7 @@ function refreshRetentionSelectionUi() {
   });
 }
 retentionOptionButtons.forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     const key = button.dataset.retentionOption;
     const option = MESSAGE_RETENTION_OPTIONS.find((entry) => entry.key === key);
     if (!option || key === messageRetentionKeyValue()) return;
@@ -8553,7 +8554,7 @@ retentionOptionButtons.forEach((button) => {
     // Shortening the window deletes history, so say exactly how much before doing it.
     if (option.days) {
       const doomed = countMessagesOutsideRetention(Date.now() - option.days * 86400000);
-      if (doomed > 0 && !confirm(`Keep only the last ${option.label.toLowerCase()} of messages?\n\n${doomed} older message${doomed === 1 ? "" : "s"} will be deleted from this browser. This cannot be undone here, and they will not be downloaded again.`)) return;
+      if (doomed > 0 && !await confirmText(`Keep only the last ${option.label.toLowerCase()} of messages?\n\n${doomed} older message${doomed === 1 ? "" : "s"} will be deleted from this browser. This cannot be undone here, and they will not be downloaded again.`)) return;
     }
     try { localStorage.setItem(accountScopedKey(MESSAGE_RETENTION_KEY), key); } catch {}
     refreshRetentionSelectionUi();
@@ -11536,11 +11537,11 @@ document.querySelector("[data-chat-mark-unread]")?.addEventListener("click", () 
   showCopyToast("Marked as unread");
 });
 
-document.querySelector("[data-chat-delete-selected]")?.addEventListener("click", () => {
+document.querySelector("[data-chat-delete-selected]")?.addEventListener("click", async () => {
   if (selectionIsGroups()) {
     const count = selectedGroupIds.size;
     if (!count) return;
-    if (!confirm(`Delete ${count} group${count === 1 ? "" : "s"} from this device? Members you invited keep their copy. This cannot be undone.`)) return;
+    if (!await confirmText(`Delete ${count} group${count === 1 ? "" : "s"} from this device? Members you invited keep their copy. This cannot be undone.`)) return;
     const mgr = getGroupManager();
     const ids = new Set(selectedGroupIds);
     if (activeGroupId && ids.has(activeGroupId)) closeGroupChat();
@@ -11552,7 +11553,7 @@ document.querySelector("[data-chat-delete-selected]")?.addEventListener("click",
   }
   const count = selectedChatConversationIds.size;
   if (!count) return;
-  if (!confirm(`Delete ${count} chat${count === 1 ? "" : "s"}? This removes the conversation and contact locally. This cannot be undone.`)) return;
+  if (!await confirmText(`Delete ${count} chat${count === 1 ? "" : "s"}? This removes the conversation and contact locally. This cannot be undone.`)) return;
   const idsToDelete = new Set(selectedChatConversationIds);
   const contactIdsToDelete = new Set(
     state.conversations.filter((entry) => idsToDelete.has(entry.id)).map((entry) => entry.contactId),
@@ -16200,7 +16201,7 @@ document.querySelector("[data-confirm-logout]")?.addEventListener("click", async
 // rest maps 1:1 — drop incoming messages, reset each conversation's sync cursor to 0 and the
 // handshake scan, then run a silent backfill sweep.
 async function dangerWipeAndResyncIncoming() {
-  if (!window.confirm("Wipe and re-sync incoming messages?\n\nThis removes all incoming messages on this device, then re-syncs them from the blockchain. Your account info and sent messages are preserved.")) return;
+  if (!await confirmText("Wipe and re-sync incoming messages?\n\nThis removes all incoming messages on this device, then re-syncs them from the blockchain. Your account info and sent messages are preserved.")) return;
   let removed = 0;
   for (const conversationEntry of state.conversations || []) {
     const before = (conversationEntry.messages || []).length;
@@ -16236,7 +16237,7 @@ async function dangerWipeAndResyncIncoming() {
 async function dangerWipeCurrentAccount() {
   const account = activeSavedAccountRecord();
   if (!account) { showCopyToast("No active account to wipe."); return; }
-  if (!window.confirm(`Wipe account & messages?\n\nThis permanently removes "${account.name}" and all of its messages and data from this device. Make sure you have backed up its recovery phrase or private key first. This cannot be undone.`)) return;
+  if (!await confirmText(`Wipe account & messages?\n\nThis permanently removes "${account.name}" and all of its messages and data from this device. Make sure you have backed up its recovery phrase or private key first. This cannot be undone.`)) return;
   try {
     localStorage.setItem(SESSION_LOGGED_OUT_KEY, "true");
     clearSessionActive();
@@ -16262,7 +16263,7 @@ async function dangerWipeCurrentAccount() {
 // The desktop's broadest reset (no iOS iCloud analogue): erase every saved account and all
 // KaChat-owned local data, then reload to a clean first-run state.
 async function dangerWipeEverything() {
-  if (!window.confirm("Wipe ALL saved accounts and local data?\n\nThis permanently erases every account, and all messages, contacts, and settings stored in this browser. Make sure you have backed up every recovery phrase. This cannot be undone.")) return;
+  if (!await confirmText("Wipe ALL saved accounts and local data?\n\nThis permanently erases every account, and all messages, contacts, and settings stored in this browser. Make sure you have backed up every recovery phrase. This cannot be undone.")) return;
   try { await engine.disconnect?.(); } catch {}
   try { engine.clearSession?.(); } catch {}
   try {
@@ -16390,8 +16391,8 @@ document.querySelector("[data-export-local-state]")?.addEventListener("click", a
   setStatus("Local data exported");
 });
 
-document.querySelector("[data-clear-local-state]")?.addEventListener("click", () => {
-  if (!confirm("Clear local contacts and message previews? Wallet/private keys are not saved and will not be affected.")) return;
+document.querySelector("[data-clear-local-state]")?.addEventListener("click", async () => {
+  if (!await confirmText("Clear local contacts and message previews? Wallet/private keys are not saved and will not be affected.")) return;
   state = { contacts: [], conversations: [] };
   persistState();
   renderChats();
@@ -16971,7 +16972,7 @@ function groupOtherMemberCount(record) {
   return (record?.members || []).filter((m) => m.address !== engine.address).length;
 }
 // Estimate the total on-chain network fee for a group control operation and return a short line
-// to append to a confirm() prompt so the user sees the cost before committing. Best-effort — on
+// to append to a await confirmText() prompt so the user sees the cost before committing. Best-effort — on
 // any failure it falls back to just the transaction count and never blocks the action.
 // controlTx = number of small (root/epoch) sends; photoTx = number of (larger) gctl_photo sends.
 async function groupOpFeeHint(groupId, { controlTx = 0, photoTx = 0 }) {
@@ -18259,7 +18260,7 @@ groupCreateSubmit?.addEventListener("click", async () => {
       const rec = mgr.getGroup(groupModalTargetId);
       const finalOthers = groupOtherMemberCount(rec) + members.length;
       const hasPhoto = Boolean(rec?.photoHex);
-      if (!confirm(`Add ${members.length} member${members.length === 1 ? "" : "s"} to the group?${await groupOpFeeHint(groupModalTargetId, { controlTx: members.length * (2 * finalOthers + 1), photoTx: hasPhoto ? members.length * finalOthers : 0 })}`)) { updateGroupCreateSubmit(); return; }
+      if (!await confirmText(`Add ${members.length} member${members.length === 1 ? "" : "s"} to the group?${await groupOpFeeHint(groupModalTargetId, { controlTx: members.length * (2 * finalOthers + 1), photoTx: hasPhoto ? members.length * finalOthers : 0 })}`)) { updateGroupCreateSubmit(); return; }
       setStatus("Adding member(s) to the group…");
       for (const address of members) {
         await mgr.addMember(groupModalTargetId, address);
@@ -18282,7 +18283,7 @@ groupCreateSubmit?.addEventListener("click", async () => {
           const per = parseFloat(await engine.estimateMessageFee(2 * (400 + (members.length + 1) * 70)) || "0");
           if (per * txCount > 0) feeLine = `\n\nEstimated network fee ≈ ${(per * txCount).toFixed(6)} KAS across ${txCount} transaction${txCount === 1 ? "" : "s"}.`;
         } catch {}
-        if (!confirm(`Create "${name}" and invite ${members.length} member${members.length === 1 ? "" : "s"}?${feeLine}`)) { updateGroupCreateSubmit(); return; }
+        if (!await confirmText(`Create "${name}" and invite ${members.length} member${members.length === 1 ? "" : "s"}?${feeLine}`)) { updateGroupCreateSubmit(); return; }
       }
       setStatus("Creating group and inviting members…");
       const record = await mgr.createGroup({ name, memberAddresses: members });
@@ -18680,7 +18681,7 @@ groupManageBody?.addEventListener("click", async (event) => {
           const per = parseFloat(await engine.estimateMessageFee(2 * (300 + hex.length)) || "0");
           if (per * others > 0) feeLine = `\n\nEstimated network fee ≈ ${(per * others).toFixed(6)} KAS across ${others} transaction${others === 1 ? "" : "s"}.`;
         } catch {}
-        if (!confirm(`Set this as the group photo for everyone?${feeLine}`)) { setStatus(""); return; }
+        if (!await confirmText(`Set this as the group photo for everyone?${feeLine}`)) { setStatus(""); return; }
         setStatus("Updating group photo…");
         await mgr.setGroupPhoto(gid, hex);
         appendGroupSystemMessage(gid, "You changed the group photo", Date.now(), `sys:${gid}:photo:${hex.length}:${hex.slice(0, 16)}`);
@@ -18701,7 +18702,7 @@ groupManageBody?.addEventListener("click", async (event) => {
   if (photoRemove && activeGroupId) {
     const mgr = getGroupManager();
     if (!mgr) return;
-    if (!confirm(`Remove the group photo for everyone?${await groupOpFeeHint(activeGroupId, { controlTx: groupOtherMemberCount(mgr.getGroup(activeGroupId)) })}`)) return;
+    if (!await confirmText(`Remove the group photo for everyone?${await groupOpFeeHint(activeGroupId, { controlTx: groupOtherMemberCount(mgr.getGroup(activeGroupId)) })}`)) return;
     try {
       setStatus("Removing group photo…");
       await mgr.setGroupPhoto(activeGroupId, "");
@@ -18729,7 +18730,7 @@ groupManageBody?.addEventListener("click", async (event) => {
     const mgr = getGroupManager();
     if (!mgr) return;
     const addr = resendOne.dataset.groupResendMember;
-    if (!confirm(`Resend the group invite to ${groupSenderLabel(addr)}?${await groupOpFeeHint(activeGroupId, { controlTx: 1 })}`)) return;
+    if (!await confirmText(`Resend the group invite to ${groupSenderLabel(addr)}?${await groupOpFeeHint(activeGroupId, { controlTx: 1 })}`)) return;
     resendOne.disabled = true;
     setStatus("Resending invite…");
     try {
@@ -18752,7 +18753,7 @@ groupManageBody?.addEventListener("click", async (event) => {
     const rec = mgr.getGroup(activeGroupId);
     const others = groupOtherMemberCount(rec);
     const hasPhoto = Boolean(rec?.photoHex);
-    if (!confirm(`Resend the group invite to all members?${await groupOpFeeHint(activeGroupId, { controlTx: others + 1, photoTx: hasPhoto ? others : 0 })}`)) return;
+    if (!await confirmText(`Resend the group invite to all members?${await groupOpFeeHint(activeGroupId, { controlTx: others + 1, photoTx: hasPhoto ? others : 0 })}`)) return;
     resend.disabled = true;
     setStatus("Resending invites…");
     try {
@@ -18777,7 +18778,7 @@ groupManageBody?.addEventListener("click", async (event) => {
       const rec = mgr.getGroup(activeGroupId);
       const afterN = Math.max(0, groupOtherMemberCount(rec) - 1);          // remaining others after removal
       const hasPhoto = Boolean(rec?.photoHex);
-      if (!confirm(`Remove ${groupSenderLabel(removeAddr)} from the group chat? A fresh group key is issued to everyone who stays.${await groupOpFeeHint(activeGroupId, { controlTx: 2 * afterN + 1, photoTx: hasPhoto ? afterN : 0 })}`)) return;
+      if (!await confirmText(`Remove ${groupSenderLabel(removeAddr)} from the group chat? A fresh group key is issued to everyone who stays.${await groupOpFeeHint(activeGroupId, { controlTx: 2 * afterN + 1, photoTx: hasPhoto ? afterN : 0 })}`)) return;
       setStatus("Removing member…");
       await mgr.removeMember(activeGroupId, removeAddr);
       // iMessage-style membership line for the admin (other members get theirs on the rotation).
@@ -18790,10 +18791,10 @@ groupManageBody?.addEventListener("click", async (event) => {
       openGroupAddMember(activeGroupId);
     } else if (target.dataset.groupRename != null) {
       const current = mgr.getGroup(activeGroupId)?.name || "";
-      const name = String(window.prompt("Rename group — every member will see the new name.", current) || "").trim();
+      const name = String(await promptText("Rename group — every member will see the new name.", current) || "").trim();
       if (!name || name === current) return;
       const others = groupOtherMemberCount(mgr.getGroup(activeGroupId));
-      if (!confirm(`Rename the group to "${name}"? Every member is notified.${await groupOpFeeHint(activeGroupId, { controlTx: others + 1 })}`)) return;
+      if (!await confirmText(`Rename the group to "${name}"? Every member is notified.${await groupOpFeeHint(activeGroupId, { controlTx: others + 1 })}`)) return;
       setStatus("Renaming group…");
       const prevName = mgr.getGroup(activeGroupId)?.name;
       await mgr.renameGroup(activeGroupId, name);
@@ -18802,7 +18803,7 @@ groupManageBody?.addEventListener("click", async (event) => {
       openGroupChat(activeGroupId);
       setStatus("Group renamed");
     } else if (target.dataset.groupDelete != null) {
-      if (!confirm("Delete this group from this device? Members you invited keep their copy.")) return;
+      if (!await confirmText("Delete this group from this device? Members you invited keep their copy.")) return;
       const id = activeGroupId;
       closeGroupManage();
       closeGroupChat();
@@ -18810,7 +18811,7 @@ groupManageBody?.addEventListener("click", async (event) => {
       renderGroupList();
       setStatus("Group deleted");
     } else if (target.dataset.groupLeave != null) {
-      if (!confirm("Leave this group? You will stop receiving its messages on this device.")) return;
+      if (!await confirmText("Leave this group? You will stop receiving its messages on this device.")) return;
       const id = activeGroupId;
       closeGroupManage();
       closeGroupChat();

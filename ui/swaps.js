@@ -10,6 +10,7 @@
 // for forks that build without the .env or want their own ChangeNOW key.
 
 import { listPortfolios, addTransactionToPortfolio } from "./portfolio.js";
+import { chooseDialog } from "./dialogs.js";
 
 const CN_BASE = "https://api.changenow.io/v1";
 const API_KEY_KEY = "kachat-changenow-api-key-v1";           // global (device-level) override
@@ -243,15 +244,18 @@ async function refreshSwapStatus(id) {
   }
 }
 
-function addSwapToPortfolio(swap) {
+async function addSwapToPortfolio(swap) {
   const portfolios = listPortfolios();
   let targetId = portfolios[0]?.id;
   if (portfolios.length > 1) {
-    const names = portfolios.map((p, i) => `${i + 1}. ${p.name}`).join("\n");
-    const pick = window.prompt(`Add to which portfolio?\n${names}\n\nEnter a number:`, "1");
-    const index = Number(pick) - 1;
-    if (!Number.isInteger(index) || index < 0 || index >= portfolios.length) return;
-    targetId = portfolios[index].id;
+    // A list to pick from, rather than a numbered menu inside a browser prompt asking someone to
+    // type "2". Nobody should have to count rows to answer a question the app can just ask.
+    targetId = await chooseDialog({
+      kicker: "Swap",
+      title: "Add to which portfolio?",
+      options: portfolios.map((portfolio) => ({ id: portfolio.id, title: portfolio.name })),
+    });
+    if (!targetId) return;
   }
   const kasReceived = swap.toTicker === "kas";
   addTransactionToPortfolio(targetId, {
