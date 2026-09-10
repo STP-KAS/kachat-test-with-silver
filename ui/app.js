@@ -6133,7 +6133,14 @@ spendingGenerateBtn?.addEventListener("click", async () => {
     try { balances = await spendingBalancesBatchSompi([...addressByIndex.values()]); }
     catch { balances = null; } // node pool unreachable — fall back to per-address lookups
     let pick = null;
+    const alreadyHidden = new Set(state.hidden.map(Number));
     for (const [i, address] of addressByIndex) {
+      // The pick has to be HIDDEN as well as unused, which is what makes press N+1 different
+      // from press N. Without it the lowest unused index, once revealed, satisfies every test
+      // again on the next press, un-hiding an index that is already visible does nothing, and
+      // Generate reports the same row as "ready" forever. iOS and Android both require it; this
+      // port had dropped it.
+      if (!alreadyHidden.has(i)) continue;
       if (i === state.activeIndex) continue;
       if (isReservedPoolAddress(poolState, address)) continue;
       if (balances) {
