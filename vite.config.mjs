@@ -12,10 +12,14 @@ import https from "node:https";
 // server — it forwards only to the origin encoded in each request's own path (no ambient
 // credentials; the browser supplies the Authorization header per request).
 function nextcloudProxy() {
-  return {
-    name: "kachat-nextcloud-proxy",
-    configureServer(server) {
-      server.middlewares.use("/nc-proxy", (req, res) => {
+  // One handler, mounted on BOTH the dev server and the preview server. `configureServer` alone
+  // meant the proxy existed only while running `vite dev`, which is why the deployment ran the dev
+  // server - a dev server serving the public site, with no minification and no content-hashed
+  // filenames, so a returning visitor could be handed a stale module. `vite build` + `vite preview`
+  // hashes every asset (permanent cache-busting, no hand-maintained ?v= numbers) and this hook is
+  // what lets Nextcloud keep working there.
+  const mount = (server) => {
+    server.middlewares.use("/nc-proxy", (req, res) => {
         // connect strips the "/nc-proxy" mount prefix, so req.url is "/<origin>/<path>?<query>".
         const match = /^\/([^/]+)(\/.*)?$/.exec(req.url || "");
         let origin = null;
@@ -118,8 +122,12 @@ function nextcloudProxy() {
           else upstream.end();
         }
         forward(new URL(match[2] || "/", `${origin.protocol}//${origin.host}`), 0);
-      });
-    },
+    });
+  };
+  return {
+    name: "kachat-nextcloud-proxy",
+    configureServer: mount,
+    configurePreviewServer: mount,
   };
 }
 
@@ -128,6 +136,11 @@ export default defineConfig({
   server: {
     // Vite rejects unknown Host headers by default; allow access via the
     // DuckDNS domain fronted by Nginx Proxy Manager.
+    allowedHosts: [".duckdns.org"],
+  },
+  // Same allowance for the built site, which is what the public deployment should serve.
+  preview: {
+    host: "0.0.0.0",
     allowedHosts: [".duckdns.org"],
   },
 });

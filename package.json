@@ -7,7 +7,10 @@
     "dev": "bash tools/check-wasm.sh && vite --host 0.0.0.0",
     "setup:wasm": "bash tools/setup-wasm-from-rusty-zip.sh",
     "setup:cipher": "bash tools/setup-kasia-cipher.sh",
-    "setup:all": "npm run setup:wasm && npm run setup:cipher"
+    "setup:all": "npm run setup:wasm && npm run setup:cipher",
+    "build": "bash tools/check-wasm.sh && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "serve": "npm run build && npm run preview"
   },
   "dependencies": {
     "@noble/ciphers": "^2.3.0",

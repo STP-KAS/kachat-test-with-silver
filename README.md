@@ -52,19 +52,33 @@ into the image, so put it in a `.env` next to the compose file:
 VITE_CHANGENOW_API_KEY=your-key-here
 ```
 
-**Why this runs the dev server.** The image starts Vite rather than serving a
-static build from nginx, which is unusual for a container and is on purpose.
-The Nextcloud integration is a `configureServer` middleware in
-`vite.config.mjs`: the `/nc-proxy` route that works around Nextcloud sending no
-CORS headers on WebDAV. Connect middleware only runs in the dev server, so a
-static build starts up looking completely normal and then fails every Nextcloud
-preview and every history backup. Anyone moving this to a static build needs to
-reimplement `/nc-proxy` in whatever serves the files.
+**What the container serves.** A production build, not the dev server. It runs
+`npm run build` at start and serves the result with `vite preview`. The build
+gives every asset a content-hashed filename, which is the only cache-busting
+that cannot be forgotten: a returning visitor either gets a file byte-for-byte
+identical to the one they cached, or a different URL. The dev server's
+unhashed filenames could hand someone one old file and one new one, and the app
+would run a mix of two versions.
+
+The build runs at container start rather than image build because Vite inlines
+every `VITE_` variable into the bundle when it builds, and `VITE_CHANGENOW_API_KEY`
+is passed as a run-time environment variable. It takes well under a second.
+
+The Nextcloud `/nc-proxy` route is a connect middleware in `vite.config.mjs`,
+mounted on both `configureServer` and `configurePreviewServer`, so it works the
+same on the built site as it does under `npm run dev`. It is what works around
+Nextcloud sending no CORS headers on WebDAV.
 
 **Reaching it by domain name.** Vite refuses requests whose `Host` header it
-does not recognise. `vite.config.mjs` allows `.duckdns.org`; any other domain
-in front of this needs adding to `server.allowedHosts`. Plain IP addresses are
-fine without any change.
+does not recognise. `vite.config.mjs` allows `.duckdns.org` on both the dev and
+preview servers; any other domain in front of this needs adding to
+`server.allowedHosts` and `preview.allowedHosts`. Plain IP addresses are fine
+without any change.
+
+**Serving it yourself, without Docker.** `npm run serve` builds and previews in
+one step; `npm run build` alone writes the site to `dist/`. If you serve `dist/`
+with your own web server instead, `/nc-proxy` has to be reimplemented there or
+the Nextcloud features stop working.
 
 
 ## Self-Hosted Cloud (Nextcloud) Setup
