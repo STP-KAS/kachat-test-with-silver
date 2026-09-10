@@ -4571,6 +4571,9 @@ body.session-logged-out [data-account-rename-modal] {
   border-radius: 8px;
 }
 .spending-row-menu-item:hover { background: var(--surface-1, rgba(255, 255, 255, .06)); }
+/* Hide Address is tinted the way iOS tints it - not destructive, but not the same weight as
+   Copy either: it takes something off the list. */
+.cold-menu-item-warn, .cold-menu-item-warn svg { color: #f5a623; }
 .spending-row-menu-item svg {
   width: 17px; height: 17px;
   fill: none; stroke: currentColor; stroke-width: 1.8;

@@ -285,6 +285,7 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
 const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+const EYE_SLASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.9 9.9 0 0 1 12 5c5 0 9 4.5 10 7a15.5 15.5 0 0 1-3.2 4.2"/><path d="M6.5 6.9C4.4 8.3 2.7 10.3 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 4.4-1.05"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
 
 const CHECKLIST_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 2 2 3-3"/><path d="M11 6h10"/><path d="m3 12.5 2 2 3-3"/><path d="M11 12.5h10"/><path d="m3 19 2 2 3-3"/><path d="M11 19h10"/></svg>`;
 
@@ -347,12 +348,17 @@ function addressRowHtml(account, entry) {
       ? '<span class="spending-address-usage used" data-cold-usage-cell="' + entry.index + '">Used</span>'
       : '<span class="spending-address-usage unused" data-cold-usage-cell="' + entry.index + '">Unused</span>';
   const balanceText = entry.balanceSompi === undefined ? "… KAS" : `${fmtKasExact(entry.balanceSompi)} KAS`;
-  // Hide/Unhide left the ⋯ menu when the Address Visibility checklist became the
-  // one place to manage visibility — same retirement the spending side made.
+  // Hide is here as well as in the Address Visibility checklist, the way iOS has it: getting one
+  // address off the list should not mean opening a screen built for going through all of them.
+  // Same guard as the checklist, and as iOS: never a FUNDED address, because hiding one hides
+  // money.
   const menuItems = [
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="rename" data-index="${entry.index}">${PENCIL_ICON}Rename Address</button>`,
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="copy" data-index="${entry.index}">${COPY_ICON}Copy Address</button>`,
     `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="qr" data-index="${entry.index}">${QR_ICON}Show QR Code</button>`,
+    ...((entry.balanceSompi || 0) === 0
+      ? [`<button type="button" role="menuitem" class="spending-row-menu-item cold-menu-item-warn" data-cold-addr-action="hide" data-index="${entry.index}">${EYE_SLASH_ICON}Hide Address</button>`]
+      : []),
   ];
   return `
     <div class="spending-address-row cold-address-row" data-cold-address-row="${entry.index}">
@@ -1950,6 +1956,16 @@ async function handleAddressAction(action, index) {
     deps.showToast?.("Address copied to clipboard.");
   } else if (action === "qr") {
     openQrModal(account, entry);
+  } else if (action === "hide") {
+    // Refuse rather than silently do nothing if a balance landed between the render and the tap.
+    if ((entry.balanceSompi || 0) > 0) {
+      deps.showToast?.("That address holds a balance, so it stays on the list.");
+      return;
+    }
+    if (!account.hidden.includes(index)) account.hidden.push(index);
+    saveState();
+    await loadDetail();
+    deps.showToast?.("Address hidden. Bring it back in Address Visibility.");
   } else if (action === "rename") {
     const custom = account.labels?.[index] ?? account.labels?.[String(index)] ?? "";
     const label = await promptModal({
