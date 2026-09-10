@@ -6843,13 +6843,21 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-kpub { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
 /* Sticky like iOS's safeAreaInset bottom bar: floats over the scrolling list
    instead of trailing after the last row. */
+/* Paste kpub / Scan live at the BOTTOM of the screen, above the dock, however many accounts
+   there are - iOS pins them with a bottom `safeAreaInset` (ColdStorageView). They used to be
+   `position: sticky`, which only reaches the bottom once the list is long enough to scroll, so
+   with one account they sat directly under it near the top of the screen. `margin-top: auto` in
+   the screen's own flex column puts them there always; the dock is cleared by the bottom padding
+   every screen already reserves for it. */
 .cold-bottom-actions {
-  display: flex; gap: 12px; margin-top: 14px;
-  position: sticky; bottom: 8px; z-index: 5;
-  transition: bottom .28s cubic-bezier(.2,.9,.3,1); /* mirrors the dock's reveal easing */
+  display: flex; gap: 12px; margin-top: auto; padding-top: 14px;
 }
-/* While the dock is revealed it floats over the bottom ~90px of the window —
-   lift the capsules clear of it, then settle back down as it tucks away. */
+/* The account list takes the room, so the capsules are pushed to the bottom rather than trailing
+   the last row. */
+[data-cold-root] { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* Air under the screen title. The account rows were sitting hard against "Cold Storage". */
+[data-cold-root] > .kaposts-header { margin-bottom: 12px; }
+[data-cold-root] > .cold-account-row + .cold-account-row { margin-top: 8px; }
 .cold-bottom-actions .cold-capsule,
 .cold-actions-wrap > .primary-button { box-shadow: 0 10px 26px rgba(0,0,0,.35); }
 .cold-capsule {
@@ -7110,6 +7118,12 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-qr-address {
   margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px; color: rgba(0,0,0,.7); word-break: break-all; text-align: center;
+}
+/* The kpub QR's warning, in iOS's own words and its own lighter weight - a kpub cannot spend,
+   which is exactly why it is easy to hand out without thinking about what it does reveal. */
+.cold-qr-note {
+  margin: 0; max-width: 34ch; text-align: center;
+  font-size: 12.5px; line-height: 1.45; color: rgba(0,0,0,.45);
 }
 .cold-qr-copy {
   display: inline-flex; align-items: center; gap: 7px;

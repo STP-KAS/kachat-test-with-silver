@@ -321,6 +321,7 @@ function renderList() {
               <button type="button" class="spending-row-menu-btn" data-cold-menu-toggle="${account.id}" aria-haspopup="true" aria-expanded="false" aria-label="Account options">${DOTS_ICON}</button>
               <div class="spending-row-menu" data-cold-menu="${account.id}" role="menu" hidden>
                 <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="copy" data-id="${account.id}">${COPY_ICON}Copy kpub</button>
+                <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="qr" data-id="${account.id}">${QR_ICON}Show kpub QR</button>
                 <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="rename" data-id="${account.id}">${PENCIL_ICON}Rename</button>
               </div>
             </div>
@@ -1432,6 +1433,7 @@ function buildModals() {
         </div>
         <div class="cold-qr-frame"><canvas width="480" height="480" data-cold-qr-canvas></canvas></div>
         <p class="cold-qr-address" data-cold-qr-address></p>
+        <p class="cold-qr-note" data-cold-qr-note hidden></p>
         <button class="cold-qr-copy" type="button" data-cold-qr-copy>${COPY_ICON}Copy Address</button>
       </div>
     </div>
@@ -1465,10 +1467,10 @@ function buildModals() {
   modalsEl.querySelector("[data-cold-qr-close]").addEventListener("click", closeQrModal);
   qrModal.addEventListener("mousedown", (event) => { if (event.target === qrModal) closeQrModal(); });
   modalsEl.querySelector("[data-cold-qr-copy]").addEventListener("click", () => {
-    const address = qrModal.dataset.address;
-    if (!address) return;
-    navigator.clipboard?.writeText(address);
-    deps.showToast?.("Address copied to clipboard.");
+    const payload = qrModal.dataset.payload;
+    if (!payload) return;
+    navigator.clipboard?.writeText(payload);
+    deps.showToast?.(qrModal.dataset.copyToast || "Copied to clipboard.");
   });
 
   // --- KSPT send flow (delegated — the body re-renders per step) ---
@@ -1639,16 +1641,44 @@ function finishConfirmModal(value) {
 }
 
 // White-background QR sheet for one address, matching iOS's ColdStorageAddressQRView.
-async function openQrModal(account, entry) {
+function openQrModal(account, entry) {
+  return presentQr({
+    title: displayLabelFor(account, entry.index),
+    payload: entry.address,
+    copyLabel: "Copy Address",
+    copyToast: "Address copied to clipboard.",
+  });
+}
+
+/// The account's extended public key as a QR, so another device can watch this account by
+/// scanning it (iOS ColdStorageKpubQRView). The warning is the one iOS prints under it: a kpub
+/// cannot spend, but handing one over hands over every address the account will ever use.
+function openKpubQrModal(account) {
+  return presentQr({
+    title: account.label,
+    payload: account.kpub,
+    copyLabel: "Copy kpub",
+    copyToast: "kpub copied to clipboard.",
+    note: "Watch-only. This cannot spend, but it reveals every address in this account.",
+  });
+}
+
+/// One presenter for both QRs, so the address QR and the kpub QR cannot drift apart.
+async function presentQr({ title, payload, copyLabel, copyToast, note }) {
   const modal = modalsEl.querySelector("[data-cold-qr-modal]");
   const canvas = modalsEl.querySelector("[data-cold-qr-canvas]");
-  modalsEl.querySelector("[data-cold-qr-title]").textContent = displayLabelFor(account, entry.index);
-  modalsEl.querySelector("[data-cold-qr-address]").textContent = entry.address;
-  modal.dataset.address = entry.address;
+  const noteEl = modalsEl.querySelector("[data-cold-qr-note]");
+  modalsEl.querySelector("[data-cold-qr-title]").textContent = title;
+  modalsEl.querySelector("[data-cold-qr-address]").textContent = payload;
+  modalsEl.querySelector("[data-cold-qr-copy]").innerHTML = `${COPY_ICON}${deps.escapeHtml(copyLabel)}`;
+  noteEl.textContent = note || "";
+  noteEl.hidden = !note;
+  modal.dataset.payload = payload;
+  modal.dataset.copyToast = copyToast;
   modal.hidden = false;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  try { await deps.engine.drawQrFor(canvas, entry.address, { dark: "#06110f", light: "#ffffff" }); }
+  try { await deps.engine.drawQrFor(canvas, payload, { dark: "#06110f", light: "#ffffff" }); }
   catch (error) { deps.appendEngineLog?.(`Cold QR failed: ${error.message}`); }
   // QRCode.toCanvas writes an inline style sized to its render width (512px), which
   // overrides the stylesheet and overflows the card — pin the display size back down.
@@ -1898,6 +1928,8 @@ async function handleAccountMenuAction(action, id) {
   if (action === "copy") {
     navigator.clipboard?.writeText(account.kpub);
     deps.showToast?.("kpub copied to clipboard.");
+  } else if (action === "qr") {
+    await openKpubQrModal(account);
   } else if (action === "rename") {
     const name = await promptModal({
       kicker: "Cold Storage",
