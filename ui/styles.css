@@ -6977,6 +6977,27 @@ body.session-logged-out [data-account-rename-modal] {
    the same way, which says so before the tap rather than by a toast after it. */
 .spending-visibility-toggle.locked { opacity: .45; cursor: default; }
 
+/* Network hashrate: full width under the two squares, because it is one long series and reads
+   far better wide than squeezed into a third square (iOS puts it the same way). */
+.portfolio-hashrate-card {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 14px;
+  border: 1px solid var(--card-border, var(--line));
+  border-radius: 18px;
+  background: var(--surface-1, rgba(255,255,255,.04));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.portfolio-hashrate-card:hover { border-color: rgba(98,244,208,.35); }
+.portfolio-hashrate-ico { display: grid; place-items: center; width: 30px; flex: 0 0 auto; color: var(--kaspa-ink); }
+.portfolio-hashrate-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.portfolio-hashrate-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.portfolio-hashrate-label { font-size: 13px; font-weight: 650; color: var(--muted); }
+.portfolio-hashrate-value { font-size: 20px; font-weight: 800; }
+.portfolio-hashrate-card svg:not(.portfolio-hashrate-ico svg) { margin-left: auto; }
+.portfolio-converter { display: flex; flex-direction: column; gap: 10px; }
+
 /* Address Actions (iOS `addressActionsSheet`): titled rows, because each of these does something
    worth a sentence - and because Address Visibility lives here now instead of being an unlabelled
    glyph in the header that said nothing about what it did. */

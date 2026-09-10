@@ -12,12 +12,17 @@ import {
   peekKasPrice,
   peekKasPriceHistory,
   peekDailyPrices,
+  fetchKasMarketStats,
+  peekKasMarketStats,
   resolveDailyPrices,
   resolveDailyPriceSingle,
   utcDayKey,
   PRICE_REQUEST_SPACING_MS,
 } from "../engine/prices.js";
 import { getEndpoint } from "../engine/endpoints.js";
+import {
+  fetchNetworkStats, peekNetworkStats, formatHashrate, parseHashrateInput, estimateDailyKas,
+} from "../engine/network-stats.js";
 import { validateMainnetAddress } from "../engine/utils.js";
 import { looksLikeDomain, resolveDomain } from "../engine/kns.js";
 import { closeActiveScanner, scanKaspaAddress } from "./qr-scan.js";
@@ -69,7 +74,15 @@ let editingTx = null;      // null = closed; { id } editing; { id: null } adding
 // notFound } — the KNS resolution state for the Add Kaspa Address sheet.
 let addressImport = null;
 let priceBackfillTimer = null; // non-null while the background price backfill loop is running
-let view = "main";         // "main" | "price" | "value" — which portfolio screen is showing
+let view = "main";         // "main" | "price" | "value" | "hashrate" — which screen is showing
+/// What the mining estimate has been typed into. Held here rather than in the DOM so the figure
+/// survives the re-render each keystroke triggers.
+let hashrateInput = "";
+/// The converter's two fields. Only the one being TYPED IN is authoritative - the other is
+/// derived - so a rounded value can never be fed back through the rate and drift (iOS
+/// KasConverterCard keeps the same rule).
+let converterKas = "1";
+let converterFiat = "";
 
 // ---------------------------------------------------------------------------
 // Selected currency
@@ -299,9 +312,8 @@ function bigChartSvg(points, { height = 240, stroke = "var(--kaspa)", chart = nu
     </div>`;
 }
 
-function sparklineSvg(points, { height = 130, stroke = "var(--kaspa)", chart = null, lineWidth = 2 } = {}) {
+function sparklineSvg(points, { height = 130, width = 560, stroke = "var(--kaspa)", chart = null, lineWidth = 2 } = {}) {
   if (!points || points.length < 2) return `<div class="portfolio-chart-empty">No data yet</div>`;
-  const width = 560;
   const values = points.map((p) => p[1]);
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -474,6 +486,102 @@ function squaresHtml(summary) {
     </div>`;
 }
 
+/// Rank and market cap (iOS `marketStatsCard`), from the same keyless CoinGecko source the price
+/// already comes from. Absent until the call lands, rather than showing a placeholder figure.
+function marketStatsHtml() {
+  const stats = peekKasMarketStats(deps.currencyCode?.().toLowerCase() || "usd");
+  if (!stats) return "";
+  return `
+    <div class="profile-card portfolio-summary">
+      <div class="portfolio-summary-grid">
+        <div class="portfolio-stat"><span class="portfolio-stat-label">Market Cap</span><span class="portfolio-stat-value">${fmtFiat(stats.marketCap)}</span></div>
+        ${stats.rank ? `<div class="portfolio-stat right"><span class="portfolio-stat-label">Rank</span><span class="portfolio-stat-value">#${stats.rank}</span></div>` : ""}
+      </div>
+    </div>`;
+}
+
+/// Network hashrate, full width under the two squares (iOS `hashrateCard`).
+///
+/// Full width rather than a third square: it is one series with a long history, and it reads far
+/// better wide than squeezed into a third of a row. The sparkline says which way it is going
+/// without anyone having to open it.
+function hashrateCardHtml() {
+  const stats = peekNetworkStats();
+  const spark = stats && stats.history.length >= 2
+    ? sparklineSvg(stats.history.slice(-90), { width: 96, height: 34 })
+    : "";
+  return `
+    <button class="portfolio-hashrate-card" type="button" data-portfolio-open="hashrate">
+      <span class="portfolio-hashrate-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11.5 5.5 4 13v7h7l7.5-7.5"/></svg>
+      </span>
+      <span class="portfolio-hashrate-copy">
+        <span class="portfolio-hashrate-label">Network Hashrate</span>
+        <span class="portfolio-hashrate-value">${stats ? formatHashrate(stats.currentHashrate) : "—"}</span>
+      </span>
+      ${spark}
+      <span class="portfolio-square-chev">›</span>
+    </button>`;
+}
+
+/// Full-screen network hashrate screen: the chart, what a block currently pays, an estimate of
+/// what a given hashrate earns per day, and what the number actually means (iOS's hashrate view).
+function hashrateViewHtml() {
+  const stats = peekNetworkStats();
+  const daily = estimateDailyKas({
+    yourHashrateHs: parseHashrateInput(hashrateInput),
+    networkHashrateHs: stats?.currentHashrate,
+    blockRewardKas: stats?.blockRewardKas,
+  });
+  const halvingDate = stats?.nextHalving ? new Date(stats.nextHalving.at).toLocaleDateString() : null;
+  return `
+    <div class="portfolio-screen-header">
+      <button class="portfolio-back-btn" type="button" data-portfolio-back aria-label="Back">‹ Portfolio</button>
+    </div>
+    <div class="profile-card">
+      <div class="portfolio-detail-head">
+        <span class="portfolio-hashrate-ico" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11.5 5.5 4 13v7h7l7.5-7.5"/></svg>
+        </span>
+        <span class="portfolio-detail-name">Network Hashrate</span>
+      </div>
+      <div class="portfolio-detail-date" data-portfolio-hashrate-date hidden></div>
+      <div class="portfolio-detail-price-row">
+        <span class="portfolio-detail-price" data-portfolio-hashrate-value>${stats ? formatHashrate(stats.currentHashrate) : "—"}</span>
+      </div>
+      ${stats && stats.history.length >= 2
+        ? bigChartSvg(stats.history, { height: 240, chart: "hashrate" })
+        : `<div class="portfolio-chart-empty">Network history is still loading.</div>`}
+    </div>
+
+    ${stats?.blockRewardKas ? `
+    <div class="profile-card portfolio-summary">
+      <div class="portfolio-summary-grid">
+        <div class="portfolio-stat"><span class="portfolio-stat-label">Block Reward</span><span class="portfolio-stat-value">${fmtKas(stats.blockRewardKas)}</span></div>
+        ${halvingDate ? `<div class="portfolio-stat right"><span class="portfolio-stat-label">Next Halving</span><span class="portfolio-stat-value">${deps.escapeHtml(halvingDate)}</span></div>` : ""}
+      </div>
+      ${stats.nextHalving ? `<p class="portfolio-about-text">Kaspa steps the reward down every month rather than cutting it in half every few years, so it drops to ${fmtKas(stats.nextHalving.amountKas)} on that date.</p>` : ""}
+    </div>` : ""}
+
+    <div class="profile-card">
+      <p class="profile-card-label">Mining Estimate</p>
+      <label class="portfolio-editor-field">
+        <span>Your hashrate</span>
+        <input type="text" inputmode="decimal" placeholder="e.g. 120 TH/s" data-portfolio-hashrate-input value="${deps.escapeHtml(hashrateInput)}" />
+      </label>
+      <div class="portfolio-summary-grid">
+        <div class="portfolio-stat"><span class="portfolio-stat-label">Estimated daily</span><span class="portfolio-stat-value">${daily === null ? "—" : `${fmtKas(daily)}`}</span></div>
+        <div class="portfolio-stat right"><span class="portfolio-stat-label">At today's price</span><span class="portfolio-stat-value">${daily === null || !price ? "—" : fmtFiat(daily * price.price)}</span></div>
+      </div>
+      <p class="field-hint">A bare number is read as TH/s. Your share of the network times what the network pays out in a day, at the current reward. It ignores luck, pool fees and orphaned blocks, so treat it as a ceiling rather than a forecast.</p>
+    </div>
+
+    <div class="profile-card portfolio-about">
+      <p class="profile-card-label">About Hashrate</p>
+      <p class="portfolio-about-text">Hashrate is how much computing work the whole network is doing every second. It is the clearest measure of how much it would cost to attack Kaspa: the higher it goes, the more hardware someone would have to out-spend to rewrite history. It also sets mining difficulty, which adjusts so blocks keep arriving about ten times a second whatever the hashrate does.</p>
+    </div>`;
+}
+
 // Full-screen KAS price chart screen.
 function priceViewHtml() {
   const change = price?.change24h ?? null;
@@ -497,6 +605,23 @@ function priceViewHtml() {
         ${RANGES.map((r) => `<button class="portfolio-range${r.days === rangeDays ? " active" : ""}" type="button" data-portfolio-range="${r.days}">${r.label}</button>`).join("")}
       </div>
     </div>
+    <div class="profile-card">
+      <p class="profile-card-label">Converter</p>
+      <div class="portfolio-converter">
+        <label class="portfolio-editor-field">
+          <span>KAS</span>
+          <input type="text" inputmode="decimal" data-portfolio-conv-kas value="${deps.escapeHtml(converterKas)}" />
+        </label>
+        <label class="portfolio-editor-field">
+          <span>${deps.escapeHtml(deps.currencyCode?.() || "USD")}</span>
+          <input type="text" inputmode="decimal" data-portfolio-conv-fiat value="${deps.escapeHtml(converterFiat)}" />
+        </label>
+      </div>
+      ${price ? "" : `<p class="field-hint">Waiting for a price…</p>`}
+    </div>
+
+    ${marketStatsHtml()}
+
     <div class="profile-card portfolio-about">
       <p class="profile-card-label">About Kaspa</p>
       <p class="portfolio-about-text">${KASPA_ABOUT}</p>
@@ -566,6 +691,11 @@ function render() {
     wireScrubbing();
     return;
   }
+  if (view === "hashrate") {
+    rootEl.innerHTML = hashrateViewHtml();
+    wireScrubbing();
+    return;
+  }
 
   const transactions = [...scoped].sort((a, b) => b.timestamp - a.timestamp);
   rootEl.innerHTML = `
@@ -588,6 +718,8 @@ function render() {
     </div>
 
     ${squaresHtml(summary)}
+
+    ${hashrateCardHtml()}
 
     <div class="profile-card">
       <div class="portfolio-tx-header">
@@ -1400,6 +1532,9 @@ let attemptedRanges = new Set();
 
 async function refreshData({ force = false } = {}) {
   if (loading) return;
+  // The hashrate card sits on the main screen, so its series is pulled with everything else -
+  // best-effort, and it repaints itself when it lands rather than holding up the price refresh.
+  fetchNetworkStats({ force }).then((stats) => { if (stats && view === "main") render(); }).catch(() => {});
   syncCurrencyState();
   if (force) attemptedRanges = new Set();
   const currency = historyCurrency;
@@ -1523,6 +1658,50 @@ export function initPortfolio(dependencies) {
   const initialFiatLabel = modalsEl?.querySelector("[data-portfolio-editor-fiat-label]");
   if (initialFiatLabel) initialFiatLabel.textContent = `Total Value (${historyCurrency.toUpperCase()})`;
 
+  // The converter and the mining estimate write into module state and refresh only the DERIVED
+  // figure. Re-rendering the whole screen on each keystroke would take the caret with it.
+  rootEl?.addEventListener("input", (event) => {
+    const target = event.target;
+    if (target.matches("[data-portfolio-conv-kas]") || target.matches("[data-portfolio-conv-fiat]")) {
+      const typingKas = target.matches("[data-portfolio-conv-kas]");
+      const rate = price?.price;
+      const amount = Number(String(target.value).replace(",", "."));
+      const other = rootEl.querySelector(typingKas ? "[data-portfolio-conv-fiat]" : "[data-portfolio-conv-kas]");
+      if (typingKas) converterKas = target.value; else converterFiat = target.value;
+      // Only the field being typed in is authoritative; the other is derived. Writing a rounded
+      // value back through the rate is how a converter drifts.
+      if (!Number.isFinite(amount) || amount <= 0 || !rate || rate <= 0) {
+        if (other) other.value = "";
+        if (typingKas) converterFiat = ""; else converterKas = "";
+        return;
+      }
+      const derived = typingKas ? amount * rate : amount / rate;
+      const text = typingKas ? derived.toFixed(2) : derived.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+      if (other) other.value = text;
+      if (typingKas) converterFiat = text; else converterKas = text;
+      return;
+    }
+    if (target.matches("[data-portfolio-hashrate-input]")) {
+      hashrateInput = target.value;
+      const stats = peekNetworkStats();
+      const daily = estimateDailyKas({
+        yourHashrateHs: parseHashrateInput(hashrateInput),
+        networkHashrateHs: stats?.currentHashrate,
+        blockRewardKas: stats?.blockRewardKas,
+      });
+      const cells = rootEl.querySelectorAll(".portfolio-stat-value");
+      const dailyCell = [...rootEl.querySelectorAll(".portfolio-stat")]
+        .find((c) => c.querySelector(".portfolio-stat-label")?.textContent === "Estimated daily")
+        ?.querySelector(".portfolio-stat-value");
+      const fiatCell = [...rootEl.querySelectorAll(".portfolio-stat")]
+        .find((c) => c.querySelector(".portfolio-stat-label")?.textContent === "At today's price")
+        ?.querySelector(".portfolio-stat-value");
+      if (dailyCell) dailyCell.textContent = daily === null ? "—" : fmtKas(daily);
+      if (fiatCell) fiatCell.textContent = daily === null || !price ? "—" : fmtFiat(daily * price.price);
+      void cells;
+    }
+  });
+
   document.addEventListener("click", (event) => {
     // Any click outside the portfolio pane's menus closes them.
     if (!rootEl || rootEl.contains(event.target)) return;
@@ -1592,9 +1771,21 @@ export function initPortfolio(dependencies) {
     if (select) { state.activeId = select.dataset.portfolioSelect; saveState(); render(); return; }
 
     const openSquare = event.target.closest("[data-portfolio-open]");
-    if (openSquare) { view = openSquare.dataset.portfolioOpen; render(); return; }
+    if (openSquare) {
+      view = openSquare.dataset.portfolioOpen;
+      render();
+      // Each screen pulls only what it needs, and repaints when it lands. Both are best-effort:
+      // the screen stands without them rather than showing an error for a figure nobody asked for.
+      if (view === "hashrate") fetchNetworkStats().then(() => { if (view === "hashrate") render(); }).catch(() => {});
+      if (view === "price") {
+        fetchKasMarketStats({ currency: deps.currencyCode?.().toLowerCase() || "usd" })
+          .then(() => { if (view === "price") render(); }).catch(() => {});
+      }
+      return;
+    }
 
     if (event.target.closest("[data-portfolio-back]")) { view = "main"; render(); return; }
+
 
     const range = event.target.closest("[data-portfolio-range]");
     if (range) {

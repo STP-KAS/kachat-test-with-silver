@@ -191,6 +191,45 @@ function persistHistory(days, currency, points) {
 /** Price history for `days` (1|7|30|90|365) in `currency`. Returns `[[timestampMs, price], ...]`.
  *  On failure returns this exact range's cached points (a stale copy of the range that was asked
  *  for beats showing a different range's curve), or `[]` when there's nothing cached. */
+/// Market cap and rank, from CoinGecko's `/coins/markets` - the same keyless source everything
+/// else here uses (iOS `CoinGeckoService.getMarketStats`).
+///
+/// CoinMarketCap's own API needs a key, and its rank agrees with CoinGecko's in all but the
+/// occasional off-by-one around ties, so this is the figure people recognise without shipping a
+/// second provider and a secret to reach it.
+///
+/// Cached for the same window as the price: these move slowly and the endpoint is rate limited.
+let marketStatsCache = null;
+export async function fetchKasMarketStats({ currency = "usd", force = false } = {}) {
+  const code = normalizeCurrency(currency);
+  if (!force && marketStatsCache?.currency === code
+      && Date.now() - marketStatsCache.fetchedAt < MIN_REFRESH_MS) {
+    return marketStatsCache;
+  }
+  try {
+    const url = `${BASE_URL}/coins/markets?vs_currency=${encodeURIComponent(code)}&ids=kaspa`;
+    const json = await fetchJsonWithRetry(url);
+    const row = Array.isArray(json) ? json[0] : null;
+    const marketCap = Number(row?.market_cap);
+    if (!Number.isFinite(marketCap) || marketCap <= 0) return marketStatsCache;
+    marketStatsCache = {
+      marketCap,
+      rank: Number.isFinite(Number(row?.market_cap_rank)) ? Number(row.market_cap_rank) : null,
+      currency: code,
+      fetchedAt: Date.now(),
+    };
+    return marketStatsCache;
+  } catch {
+    // A stat nobody asked for is not worth an error; the card just stays blank.
+    return marketStatsCache;
+  }
+}
+
+export function peekKasMarketStats(currency = "usd") {
+  const code = normalizeCurrency(currency);
+  return marketStatsCache?.currency === code ? marketStatsCache : null;
+}
+
 export async function fetchKasPriceHistory(days = 7, { currency = "usd", force = false } = {}) {
   const code = normalizeCurrency(currency);
   const cached = peekKasPriceHistory(days, code);
