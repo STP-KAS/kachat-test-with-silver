@@ -112,7 +112,10 @@ export function formatHashrate(hs) {
   if (phs >= 1000) return `${(phs / 1000).toFixed(2)} EH/s`;
   if (phs >= 1) return `${phs.toFixed(1)} PH/s`;
   if (phs >= 0.001) return `${(phs * 1000).toFixed(1)} TH/s`;
-  return `${(phs * 1e6).toFixed(1)} GH/s`;
+  // iOS bottoms out at GH/s, which renders the chain's earliest samples as "0.0 GH/s". One more
+  // step down costs nothing and only differs from iOS where iOS says nothing useful.
+  if (phs >= 1e-6) return `${(phs * 1e6).toFixed(1)} GH/s`;
+  return `${(phs * 1e9).toFixed(1)} MH/s`;
 }
 
 /// Parses what someone types into the mining estimate ("120 TH/s", "3.5 ph", "500") into H/s.

@@ -21,7 +21,7 @@ import {
 } from "../engine/prices.js";
 import { getEndpoint } from "../engine/endpoints.js";
 import {
-  fetchNetworkStats, peekNetworkStats, formatHashrate, parseHashrateInput, estimateDailyKas,
+  fetchNetworkStats, peekNetworkStats, formatHashrate, estimateDailyKas,
 } from "../engine/network-stats.js";
 import { validateMainnetAddress } from "../engine/utils.js";
 import { looksLikeDomain, resolveDomain } from "../engine/kns.js";
@@ -84,6 +84,20 @@ let hashrateInput = "";
 /// The order being edited, which is NOT the live one until Done - the same reason Customize Dock
 /// edits a draft: committing on every arrow press would re-render the cards underneath the sheet.
 let reorderDraft = [];
+/// The unit the mining estimate is entered in. A picker rather than parsing what someone types:
+/// "120" alone is ambiguous, and guessing TH/s puts the answer out by three orders of magnitude
+/// when they meant GH/s.
+const HASHRATE_UNITS = [
+  { key: "gh", label: "GH/s", scale: 1e9 },
+  { key: "th", label: "TH/s", scale: 1e12 },
+  { key: "ph", label: "PH/s", scale: 1e15 },
+];
+let hashrateUnit = "th";
+/// Which card's settings overlay is open, and which step of it.
+let cardModalId = null;
+let cardModalMode = "menu"; // "menu" | "rename" | "delete"
+/// Which of the two header overlays is open.
+let actionSheetMode = "add"; // "add" | "io"
 let converterKas = "1";
 let converterFiat = "";
 
@@ -386,12 +400,7 @@ function pickerCard(portfolio) {
       ${change
         ? `<div class="portfolio-card-change ${positive ? "gain" : "loss"}">${positive ? "↑" : "↓"} ${Math.abs(change.percent).toFixed(2)}%</div>`
         : `<div class="portfolio-card-change muted">—</div>`}
-      <div class="portfolio-card-actions" data-portfolio-card-actions="${portfolio.id}" hidden>
-        <button type="button" data-portfolio-rename="${portfolio.id}">Rename</button>
-        ${state.portfolios.length > 1 ? `
-          <button type="button" data-portfolio-reorder>Reorder Portfolios</button>
-          <button type="button" class="danger" data-portfolio-delete="${portfolio.id}">Delete</button>` : ""}
-      </div>
+
     </div>`;
 }
 
@@ -491,6 +500,216 @@ function squaresHtml(summary) {
     </div>`;
 }
 
+/// The card settings overlay: rename, reorder and delete all happen HERE rather than each opening
+/// its own thing (iOS `PressedPortfolio`).
+///
+/// It replaces a dropdown that lived INSIDE the card, which the card then clipped - the menu came
+/// out looking broken because half of it was behind the card's own edge. An overlay has no such
+/// box to escape from. Rename is a step of it too, rather than a `window.prompt`: a browser dialog
+/// looks like the website is asking, not the app.
+function renderCardModal() {
+  const body = modalsEl?.querySelector("[data-portfolio-card-body]");
+  const portfolio = state.portfolios.find((p) => p.id === cardModalId);
+  if (!body || !portfolio) return;
+  const hasOthers = state.portfolios.length > 1;
+  const head = (title) => `
+    <div class="modal-header">
+      <div><p class="modal-kicker">Portfolio</p><h2>${deps.escapeHtml(title)}</h2></div>
+      <button class="modal-close" type="button" data-portfolio-card-close aria-label="Close">×</button>
+    </div>`;
+
+  if (cardModalMode === "rename") {
+    body.innerHTML = `
+      ${head("Rename Portfolio")}
+      <div class="portfolio-editor-body">
+        <label class="portfolio-editor-field">
+          <span>Name</span>
+          <input type="text" maxlength="40" data-portfolio-card-name value="${deps.escapeHtml(portfolio.name)}" />
+        </label>
+        <p class="field-hint">Only the name changes. Transactions stay where they are.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-portfolio-card-back>Back</button>
+        <button class="primary-button" type="button" data-portfolio-card-rename-save>Save</button>
+      </div>`;
+    body.querySelector("[data-portfolio-card-name]")?.focus();
+    return;
+  }
+
+  if (cardModalMode === "delete") {
+    const count = (portfolio.transactions || []).length;
+    body.innerHTML = `
+      ${head(`Delete ${portfolio.name}?`)}
+      <p class="field-hint">This removes the portfolio and its ${count} transaction${count === 1 ? "" : "s"}. It cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-portfolio-card-back>Cancel</button>
+        <button class="primary-button danger" type="button" data-portfolio-card-delete-confirm>Delete</button>
+      </div>`;
+    return;
+  }
+
+  body.innerHTML = `
+    ${head(portfolio.name)}
+    <div class="cold-action-rows">
+      <button type="button" class="cold-action-row" data-portfolio-card-mode="rename">
+        <span class="cold-action-copy"><strong>Rename</strong><small>Only the name changes. Transactions stay where they are.</small></span>
+      </button>
+      ${hasOthers ? `
+      <button type="button" class="cold-action-row" data-portfolio-card-mode="reorder">
+        <span class="cold-action-copy"><strong>Reorder Portfolios</strong><small>Sets the order the cards appear in.</small></span>
+      </button>
+      <button type="button" class="cold-action-row cold-action-row-warn" data-portfolio-card-mode="delete">
+        <span class="cold-action-copy"><strong>Delete ${deps.escapeHtml(portfolio.name)}</strong><small>Removes it and everything recorded in it.</small></span>
+      </button>` : `
+      <p class="field-hint">This is your only portfolio, so it cannot be deleted or reordered.</p>`}
+    </div>`;
+}
+
+/// An in-app confirm. Every native `window.confirm` reads as "localhost says", which is the
+/// BROWSER asking rather than the app - and on a page people are trusting with money that is
+/// exactly the wrong voice. Resolves true when the destructive button is pressed.
+let confirmResolve = null;
+function confirmOverlay({ title, message, confirmLabel = "Delete", destructive = true }) {
+  return new Promise((resolve) => {
+    const body = modalsEl?.querySelector("[data-portfolio-confirm-body]");
+    if (!body) { resolve(false); return; }
+    confirmResolve = resolve;
+    body.innerHTML = `
+      <div class="modal-header">
+        <div><p class="modal-kicker">Portfolio</p><h2>${deps.escapeHtml(title)}</h2></div>
+        <button class="modal-close" type="button" data-portfolio-confirm-cancel aria-label="Close">×</button>
+      </div>
+      <p class="field-hint">${deps.escapeHtml(message)}</p>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-portfolio-confirm-cancel>Cancel</button>
+        <button class="primary-button${destructive ? " danger" : ""}" type="button" data-portfolio-confirm-ok>${deps.escapeHtml(confirmLabel)}</button>
+      </div>`;
+    modalsEl.querySelector("[data-portfolio-confirm-modal]").hidden = false;
+  });
+}
+
+function settleConfirm(result) {
+  const modal = modalsEl?.querySelector("[data-portfolio-confirm-modal]");
+  if (modal) modal.hidden = true;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  resolve?.(result);
+}
+
+/// Naming a new portfolio, in the app rather than in a browser prompt.
+let namePromptResolve = null;
+function namePromptOverlay({ title, label, initial = "", confirmLabel = "Create" }) {
+  return new Promise((resolve) => {
+    const body = modalsEl?.querySelector("[data-portfolio-name-body]");
+    if (!body) { resolve(null); return; }
+    namePromptResolve = resolve;
+    body.innerHTML = `
+      <div class="modal-header">
+        <div><p class="modal-kicker">Portfolio</p><h2>${deps.escapeHtml(title)}</h2></div>
+        <button class="modal-close" type="button" data-portfolio-name-cancel aria-label="Close">×</button>
+      </div>
+      <div class="portfolio-editor-body">
+        <label class="portfolio-editor-field">
+          <span>${deps.escapeHtml(label)}</span>
+          <input type="text" maxlength="40" data-portfolio-name-input value="${deps.escapeHtml(initial)}" />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-button" type="button" data-portfolio-name-cancel>Cancel</button>
+        <button class="primary-button" type="button" data-portfolio-name-ok>${deps.escapeHtml(confirmLabel)}</button>
+      </div>`;
+    modalsEl.querySelector("[data-portfolio-name-modal]").hidden = false;
+    const input = body.querySelector("[data-portfolio-name-input]");
+    input?.focus();
+    input?.select();
+  });
+}
+
+function settleNamePrompt(value) {
+  const modal = modalsEl?.querySelector("[data-portfolio-name-modal]");
+  if (modal) modal.hidden = true;
+  const resolve = namePromptResolve;
+  namePromptResolve = null;
+  resolve?.(value);
+}
+
+function openAddressImport() {
+  addressImport = {
+    busy: false, progress: "", input: "",
+    resolving: false, resolvedAddress: null, resolvedDomain: null, notFound: false,
+  };
+  knsResolveSeq += 1; // abandon any lookup left over from a previous open
+  modalsEl.querySelector("[data-portfolio-import-address]").value = "";
+  setImportProgress("");
+  syncImportModal();
+  modalsEl.querySelector("[data-portfolio-import-modal]").hidden = false;
+}
+
+/// The two header buttons open overlays rather than dropdowns.
+///
+/// Add offers both ways of getting a transaction in - typing one, or importing an address's whole
+/// history - because those are the same intent and hiding one of them under Import/Export meant
+/// looking for it in the wrong place. Import/Export is then exactly what its name says.
+function renderPortfolioActionSheet() {
+  const body = modalsEl?.querySelector("[data-portfolio-action-body]");
+  if (!body) return;
+  const rows = actionSheetMode === "add"
+    ? [
+        { action: "tx", title: "Add Transaction", subtitle: "Record a buy or a sell yourself." },
+        { action: "address", title: "Add Kaspa Address", subtitle: "Imports every transaction an address has, priced at the day each happened." },
+      ]
+    : [
+        { action: "import", title: "Import CSV", subtitle: "Reads a CoinMarketCap transaction history file." },
+        { action: "export", title: "Export CSV", subtitle: "Writes this portfolio out in the same format." },
+      ];
+  body.innerHTML = `
+    <div class="modal-header">
+      <div><p class="modal-kicker">Portfolio</p><h2>${actionSheetMode === "add" ? "Add" : "Import / Export"}</h2></div>
+      <button class="modal-close" type="button" data-portfolio-action-close aria-label="Close">×</button>
+    </div>
+    <div class="cold-action-rows">
+      ${rows.map((row) => `
+        <button type="button" class="cold-action-row" data-portfolio-action="${row.action}">
+          <span class="cold-action-copy"><strong>${row.title}</strong><small>${row.subtitle}</small></span>
+        </button>`).join("")}
+    </div>`;
+}
+
+/// What was typed, in H/s, using the unit the picker has selected.
+function typedHashrateHs() {
+  const amount = Number(String(hashrateInput).replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return amount * (HASHRATE_UNITS.find((u) => u.key === hashrateUnit)?.scale ?? 1e12);
+}
+
+/// One stat: label on the left, value on the right, with a divider between rows (iOS `statRow`).
+/// A two-column grid squeezed four figures into two lines and left the reader matching labels to
+/// values by position.
+function statRowHtml(label, value, valueClass = "") {
+  return `
+    <div class="portfolio-stat-row">
+      <span class="portfolio-stat-label">${label}</span>
+      <span class="portfolio-stat-value ${valueClass}">${value}</span>
+    </div>`;
+}
+
+/// The change over the SELECTED range, not always 24h (iOS `priceRangeChange`): the badge beside
+/// the price has to answer the question the chart under it is asking. A 1Y chart with a 24h badge
+/// invites reading the year's move as a day's.
+function rangeChange(series) {
+  if (!series || series.length < 2) return null;
+  const first = series[0][1];
+  const last = series[series.length - 1][1];
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return null;
+  const amount = last - first;
+  return { amount, percent: first === 0 ? 0 : (amount / first) * 100 };
+}
+
+/// How the selected range is named beside that figure (iOS `priceRangeLabel`).
+function rangeLabel() {
+  return { 1: "24h", 7: "1W", 30: "1M", 90: "3M", 365: "1Y" }[rangeDays] || `${rangeDays}d`;
+}
+
 /// Reordering, offered from a card's own menu the way iOS offers it - one screen where the order
 /// is edited and committed, rather than dragging the cards themselves.
 ///
@@ -564,7 +783,7 @@ function hashrateCardHtml() {
 function hashrateViewHtml() {
   const stats = peekNetworkStats();
   const daily = estimateDailyKas({
-    yourHashrateHs: parseHashrateInput(hashrateInput),
+    yourHashrateHs: typedHashrateHs(),
     networkHashrateHs: stats?.currentHashrate,
     blockRewardKas: stats?.blockRewardKas,
   });
@@ -591,24 +810,28 @@ function hashrateViewHtml() {
 
     ${stats?.blockRewardKas ? `
     <div class="profile-card portfolio-summary">
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat"><span class="portfolio-stat-label">Block Reward</span><span class="portfolio-stat-value">${fmtKas(stats.blockRewardKas)}</span></div>
-        ${halvingDate ? `<div class="portfolio-stat right"><span class="portfolio-stat-label">Next Halving</span><span class="portfolio-stat-value">${deps.escapeHtml(halvingDate)}</span></div>` : ""}
-      </div>
-      ${stats.nextHalving ? `<p class="portfolio-about-text">Kaspa steps the reward down every month rather than cutting it in half every few years, so it drops to ${fmtKas(stats.nextHalving.amountKas)} on that date.</p>` : ""}
+      ${statRowHtml("Block Reward", fmtKas(stats.blockRewardKas))}
+      ${stats.nextHalving ? `
+        ${statRowHtml("Next Block Reward", fmtKas(stats.nextHalving.amountKas))}
+        ${statRowHtml("Next Block Reward Reduction", deps.escapeHtml(halvingDate))}` : ""}
+      ${stats.nextHalving ? `<p class="portfolio-about-text">Kaspa steps the reward down a little every month rather than cutting it in half every few years, so this is a reduction rather than a halving.</p>` : ""}
     </div>` : ""}
 
     <div class="profile-card">
       <p class="profile-card-label">Mining Estimate</p>
-      <label class="portfolio-editor-field">
-        <span>Your hashrate</span>
-        <input type="text" inputmode="decimal" placeholder="e.g. 120 TH/s" data-portfolio-hashrate-input value="${deps.escapeHtml(hashrateInput)}" />
-      </label>
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat"><span class="portfolio-stat-label">Estimated daily</span><span class="portfolio-stat-value">${daily === null ? "—" : `${fmtKas(daily)}`}</span></div>
-        <div class="portfolio-stat right"><span class="portfolio-stat-label">At today's price</span><span class="portfolio-stat-value">${daily === null || !price ? "—" : fmtFiat(daily * price.price)}</span></div>
+      <div class="portfolio-hashrate-entry">
+        <label class="portfolio-editor-field">
+          <span>Your hashrate</span>
+          <input type="text" inputmode="decimal" placeholder="e.g. 120" data-portfolio-hashrate-input value="${deps.escapeHtml(hashrateInput)}" />
+        </label>
+        <div class="settings-segmented" role="group" aria-label="Hashrate unit">
+          ${HASHRATE_UNITS.map((unit) => `
+            <button type="button" class="settings-segmented-option ${hashrateUnit === unit.key ? "active" : ""}" data-portfolio-hashrate-unit="${unit.key}">${unit.label}</button>`).join("")}
+        </div>
       </div>
-      <p class="field-hint">A bare number is read as TH/s. Your share of the network times what the network pays out in a day, at the current reward. It ignores luck, pool fees and orphaned blocks, so treat it as a ceiling rather than a forecast.</p>
+      ${statRowHtml("Estimated daily", daily === null ? "—" : fmtKas(daily))}
+      ${statRowHtml("At today's price", daily === null || !price ? "—" : fmtFiat(daily * price.price))}
+      <p class="field-hint">Your share of the network times what the network pays out in a day, at the current reward. It ignores luck, pool fees and orphaned blocks, so treat it as a ceiling rather than a forecast.</p>
     </div>
 
     <div class="profile-card portfolio-about">
@@ -619,7 +842,11 @@ function hashrateViewHtml() {
 
 // Full-screen KAS price chart screen.
 function priceViewHtml() {
-  const change = price?.change24h ?? null;
+  // Over the range on screen, falling back to the 24h figure only when there is not enough
+  // history to compute one.
+  const ranged = rangeChange(history);
+  const change = ranged ? ranged.percent : (price?.change24h ?? null);
+  const label = ranged ? rangeLabel() : "24h";
   const pPos = (change ?? 0) >= 0;
   return `
     <div class="portfolio-screen-header">
@@ -633,7 +860,7 @@ function priceViewHtml() {
       <div class="portfolio-detail-date" data-portfolio-price-date hidden></div>
       <div class="portfolio-detail-price-row">
         <span class="portfolio-detail-price" data-portfolio-price-value>${price ? fmtPrice(price.price) : "—"}</span>
-        ${change !== null ? `<span class="portfolio-detail-24h ${pPos ? "gain" : "loss"}" data-portfolio-price-24h>${pPos ? "↑" : "↓"} ${Math.abs(change).toFixed(2)}% (24h)</span>` : ""}
+        ${change !== null ? `<span class="portfolio-detail-24h ${pPos ? "gain" : "loss"}" data-portfolio-price-24h>${pPos ? "↑" : "↓"} ${Math.abs(change).toFixed(2)}% (${deps.escapeHtml(label)})</span>` : ""}
       </div>
       ${bigChartSvg(history, { height: 240, chart: "price" })}
       <div class="portfolio-ranges portfolio-ranges-wide">
@@ -667,20 +894,13 @@ function priceViewHtml() {
 function valueStatsHtml(summary) {
   return `
     <div class="profile-card portfolio-summary">
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat"><span class="portfolio-stat-label">Holdings</span><span class="portfolio-stat-value">${fmtKas(summary.holdingsKas)}</span></div>
-        <div class="portfolio-stat right"><span class="portfolio-stat-label">Current Value</span><span class="portfolio-stat-value">${fmtFiat(summary.currentValue)}</span></div>
-      </div>
-      <div class="portfolio-summary-divider"></div>
-      <div class="portfolio-summary-grid">
-        <div class="portfolio-stat"><span class="portfolio-stat-label">Total Invested</span><span class="portfolio-stat-value">${fmtFiat(summary.totalInvested)}</span></div>
-        <div class="portfolio-stat right"><span class="portfolio-stat-label">Total P&amp;L</span><span class="portfolio-stat-value ${summary.totalPL >= 0 ? "gain" : "loss"}">${summary.totalPL >= 0 ? "↗" : "↘"} ${fmtFiat(summary.totalPL)} (${summary.totalPLPercent.toFixed(1)}%)</span></div>
-      </div>
-      ${summary.averageBuyPriceUsd !== null ? `
-        <div class="portfolio-summary-divider"></div>
-        <div class="portfolio-summary-grid">
-          <div class="portfolio-stat"><span class="portfolio-stat-label">Avg. Buy Price</span><span class="portfolio-stat-value">${fmtPrice(summary.averageBuyPriceUsd)}</span></div>
-        </div>` : ""}
+      ${statRowHtml("Holdings", fmtKas(summary.holdingsKas))}
+      ${statRowHtml("Current Value", fmtFiat(summary.currentValue))}
+      ${statRowHtml("Total Invested", fmtFiat(summary.totalInvested))}
+      ${statRowHtml("Total P&amp;L",
+        `${summary.totalPL >= 0 ? "↗" : "↘"} ${fmtFiat(summary.totalPL)} (${summary.totalPLPercent.toFixed(1)}%)`,
+        summary.totalPL >= 0 ? "gain" : "loss")}
+      ${summary.averageBuyPriceUsd !== null ? statRowHtml("Avg. Buy Price", fmtPrice(summary.averageBuyPriceUsd)) : ""}
     </div>`;
 }
 
@@ -760,13 +980,8 @@ function render() {
       <div class="portfolio-tx-header">
         <p class="profile-card-label">Transactions</p>
         <div class="portfolio-tx-header-actions">
-          <button class="cold-inline-link" type="button" data-portfolio-tx-add>+ Add</button>
-          <button class="cold-inline-link" type="button" data-portfolio-io-menu>Import/Export ▾</button>
-          <div class="portfolio-menu" data-portfolio-io-dropdown hidden>
-            <button type="button" data-portfolio-io-address>Add Kaspa Address</button>
-            <button type="button" data-portfolio-import-csv>Import CSV</button>
-            <button type="button" data-portfolio-export-csv>Export CSV</button>
-          </div>
+          <button class="cold-inline-link" type="button" data-portfolio-add-menu>+ Add</button>
+          <button class="cold-inline-link" type="button" data-portfolio-io-menu>Import/Export</button>
         </div>
       </div>
       ${transactions.length === 0
@@ -799,13 +1014,31 @@ function wireScrubbing() {
     return;
   }
 
+  // Hashrate screen: scrubbing shows the point's date and what the network was doing then.
+  if (view === "hashrate") {
+    const stats = peekNetworkStats();
+    const wrap = rootEl.querySelector('[data-portfolio-chart="hashrate"]');
+    attachScrub(wrap, stats?.history || [], ([ts, hs]) => {
+      const date = rootEl.querySelector("[data-portfolio-hashrate-date]");
+      const value = rootEl.querySelector("[data-portfolio-hashrate-value]");
+      if (date) { date.hidden = false; date.textContent = new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); }
+      if (value) value.textContent = formatHashrate(hs);
+    }, () => {
+      const date = rootEl.querySelector("[data-portfolio-hashrate-date]");
+      const value = rootEl.querySelector("[data-portfolio-hashrate-value]");
+      if (date) date.hidden = true;
+      if (value) value.textContent = stats ? formatHashrate(stats.currentHashrate) : "—";
+    });
+    return;
+  }
+
   // Value screen: scrubbing shows the point's date + value; the "Portfolio Value" label stays.
   if (view === "value") {
     const wrap = rootEl.querySelector('[data-portfolio-chart="value"]');
     attachScrub(wrap, valuePoints, ([ts, v]) => {
       const date = rootEl.querySelector("[data-portfolio-value-date]");
       const readout = rootEl.querySelector("[data-portfolio-value-readout]");
-      if (date) { date.hidden = false; date.textContent = new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }); }
+      if (date) { date.hidden = false; date.textContent = new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); }
       if (readout) readout.textContent = fmtFiat(v);
     }, () => {
       const date = rootEl.querySelector("[data-portfolio-value-date]");
@@ -1448,6 +1681,22 @@ function buildModals() {
       </div>
     </div>
 
+    <div class="modal-backdrop" data-portfolio-confirm-modal hidden>
+      <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Confirm" data-portfolio-confirm-body></div>
+    </div>
+
+    <div class="modal-backdrop" data-portfolio-name-modal hidden>
+      <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Name" data-portfolio-name-body></div>
+    </div>
+
+    <div class="modal-backdrop" data-portfolio-action-modal hidden>
+      <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Portfolio actions" data-portfolio-action-body></div>
+    </div>
+
+    <div class="modal-backdrop" data-portfolio-card-modal hidden>
+      <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Portfolio options" data-portfolio-card-body></div>
+    </div>
+
     <div class="modal-backdrop" data-portfolio-reorder-modal hidden>
       <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Reorder Portfolios" data-portfolio-reorder-body></div>
     </div>
@@ -1480,7 +1729,61 @@ function buildModals() {
     <input type="file" accept=".csv,text/csv" data-portfolio-csv-input hidden />`;
   document.body.appendChild(modalsEl);
 
-  modalsEl.addEventListener("click", (event) => {
+  modalsEl.addEventListener("click", async (event) => {
+    if (event.target.closest("[data-portfolio-confirm-cancel]")) { settleConfirm(false); return; }
+    if (event.target.closest("[data-portfolio-confirm-ok]")) { settleConfirm(true); return; }
+    if (event.target.closest("[data-portfolio-name-cancel]")) { settleNamePrompt(null); return; }
+    if (event.target.closest("[data-portfolio-name-ok]")) {
+      settleNamePrompt(String(modalsEl.querySelector("[data-portfolio-name-input]")?.value || ""));
+      return;
+    }
+
+    // --- Card settings overlay ---
+    if (event.target.closest("[data-portfolio-card-close]")) {
+      modalsEl.querySelector("[data-portfolio-card-modal]").hidden = true;
+      cardModalId = null;
+      return;
+    }
+    if (event.target.closest("[data-portfolio-card-back]")) { cardModalMode = "menu"; renderCardModal(); return; }
+    const cardMode = event.target.closest("[data-portfolio-card-mode]");
+    if (cardMode) {
+      const mode = cardMode.dataset.portfolioCardMode;
+      if (mode === "reorder") {
+        // Reordering is about the whole set rather than this one card, so it hands over to its
+        // own sheet instead of living as a step here.
+        modalsEl.querySelector("[data-portfolio-card-modal]").hidden = true;
+        reorderDraft = state.portfolios.map((p) => ({ id: p.id, name: p.name }));
+        renderReorderModal();
+        modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = false;
+        return;
+      }
+      cardModalMode = mode;
+      renderCardModal();
+      return;
+    }
+    if (event.target.closest("[data-portfolio-card-rename-save]")) {
+      const input = modalsEl.querySelector("[data-portfolio-card-name]");
+      const name = String(input?.value || "").trim();
+      const portfolio = state.portfolios.find((p) => p.id === cardModalId);
+      if (portfolio && name) { portfolio.name = name; saveState(); }
+      modalsEl.querySelector("[data-portfolio-card-modal]").hidden = true;
+      cardModalId = null;
+      render();
+      return;
+    }
+    if (event.target.closest("[data-portfolio-card-delete-confirm]")) {
+      const portfolio = state.portfolios.find((p) => p.id === cardModalId);
+      if (portfolio && state.portfolios.length > 1) {
+        state.portfolios = state.portfolios.filter((p) => p.id !== portfolio.id);
+        if (state.activeId === portfolio.id) state.activeId = state.portfolios[0].id;
+        saveState();
+      }
+      modalsEl.querySelector("[data-portfolio-card-modal]").hidden = true;
+      cardModalId = null;
+      render();
+      return;
+    }
+
     // --- Reorder ---
     if (event.target.closest("[data-portfolio-reorder-close]")) {
       modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = true;
@@ -1511,7 +1814,7 @@ function buildModals() {
     if (event.target.closest("[data-portfolio-editor-close]")) { closeTxEditor(); return; }
     if (event.target.closest("[data-portfolio-editor-save]")) { saveTxEditor(); return; }
     if (event.target.closest("[data-portfolio-editor-delete]")) {
-      if (editingTx?.id && window.confirm("Delete this transaction?")) {
+      if (editingTx?.id && await confirmOverlay({ title: "Delete transaction?", message: "This removes it from the portfolio. It cannot be undone." })) {
         const portfolio = activePortfolio();
         portfolio.transactions = (portfolio.transactions || []).filter((t) => t.id !== editingTx.id);
         saveState();
@@ -1751,20 +2054,17 @@ export function initPortfolio(dependencies) {
       hashrateInput = target.value;
       const stats = peekNetworkStats();
       const daily = estimateDailyKas({
-        yourHashrateHs: parseHashrateInput(hashrateInput),
+        yourHashrateHs: typedHashrateHs(),
         networkHashrateHs: stats?.currentHashrate,
         blockRewardKas: stats?.blockRewardKas,
       });
-      const cells = rootEl.querySelectorAll(".portfolio-stat-value");
-      const dailyCell = [...rootEl.querySelectorAll(".portfolio-stat")]
-        .find((c) => c.querySelector(".portfolio-stat-label")?.textContent === "Estimated daily")
+      const cellFor = (label) => [...rootEl.querySelectorAll(".portfolio-stat-row")]
+        .find((row) => row.querySelector(".portfolio-stat-label")?.textContent === label)
         ?.querySelector(".portfolio-stat-value");
-      const fiatCell = [...rootEl.querySelectorAll(".portfolio-stat")]
-        .find((c) => c.querySelector(".portfolio-stat-label")?.textContent === "At today's price")
-        ?.querySelector(".portfolio-stat-value");
+      const dailyCell = cellFor("Estimated daily");
+      const fiatCell = cellFor("At today's price");
       if (dailyCell) dailyCell.textContent = daily === null ? "—" : fmtKas(daily);
       if (fiatCell) fiatCell.textContent = daily === null || !price ? "—" : fmtFiat(daily * price.price);
-      void cells;
     }
   });
 
@@ -1786,14 +2086,13 @@ export function initPortfolio(dependencies) {
     refreshData({ force: true });
   });
 
-  rootEl?.addEventListener("click", (event) => {
+  rootEl?.addEventListener("click", async (event) => {
     const cardMenu = event.target.closest("[data-portfolio-card-menu]");
     if (cardMenu) {
-      const id = cardMenu.dataset.portfolioCardMenu;
-      const actions = rootEl.querySelector(`[data-portfolio-card-actions="${id}"]`);
-      const wasHidden = actions?.hidden;
-      closeCardMenus();
-      if (actions) actions.hidden = !wasHidden;
+      cardModalId = cardMenu.dataset.portfolioCardMenu;
+      cardModalMode = "menu";
+      renderCardModal();
+      modalsEl.querySelector("[data-portfolio-card-modal]").hidden = false;
       return;
     }
 
@@ -1804,33 +2103,13 @@ export function initPortfolio(dependencies) {
       modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = false;
       return;
     }
-    const rename = event.target.closest("[data-portfolio-rename]");
-    if (rename) {
-      const portfolio = state.portfolios.find((p) => p.id === rename.dataset.portfolioRename);
-      if (portfolio) {
-        const name = window.prompt("Rename portfolio:", portfolio.name);
-        if (name?.trim()) { portfolio.name = name.trim(); saveState(); }
-      }
-      render();
-      return;
-    }
-
-    const del = event.target.closest("[data-portfolio-delete]");
-    if (del) {
-      const portfolio = state.portfolios.find((p) => p.id === del.dataset.portfolioDelete);
-      if (portfolio && state.portfolios.length > 1 &&
-          window.confirm(`Delete "${portfolio.name}" and its ${(portfolio.transactions || []).length} transactions? This can't be undone.`)) {
-        state.portfolios = state.portfolios.filter((p) => p.id !== portfolio.id);
-        if (state.activeId === portfolio.id) state.activeId = state.portfolios[0].id;
-        saveState();
-      }
-      render();
-      return;
-    }
-
     if (event.target.closest("[data-portfolio-add]")) {
       if (state.portfolios.length >= MAX_PORTFOLIOS) return;
-      const name = window.prompt("Portfolio name:", `Portfolio ${state.portfolios.length + 1}`);
+      const name = await namePromptOverlay({
+        title: "New Portfolio",
+        label: "Name",
+        initial: `Portfolio ${state.portfolios.length + 1}`,
+      });
       if (name?.trim()) {
         const p = { id: nowId(), name: name.trim(), transactions: [] };
         state.portfolios.push(p);
@@ -1860,6 +2139,9 @@ export function initPortfolio(dependencies) {
     if (event.target.closest("[data-portfolio-back]")) { view = "main"; render(); return; }
 
 
+    const unit = event.target.closest("[data-portfolio-hashrate-unit]");
+    if (unit) { hashrateUnit = unit.dataset.portfolioHashrateUnit; render(); return; }
+
     const range = event.target.closest("[data-portfolio-range]");
     if (range) {
       rangeDays = Number(range.dataset.portfolioRange) || 7;
@@ -1870,13 +2152,32 @@ export function initPortfolio(dependencies) {
 
     if (event.target.closest("[data-portfolio-refresh]")) { refreshData({ force: true }); return; }
 
-    if (event.target.closest("[data-portfolio-tx-add]")) { openTxEditor(null); return; }
+    if (event.target.closest("[data-portfolio-add-menu]")) {
+      actionSheetMode = "add";
+      renderPortfolioActionSheet();
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = false;
+      return;
+    }
 
     if (event.target.closest("[data-portfolio-io-menu]")) {
-      const dropdown = rootEl.querySelector("[data-portfolio-io-dropdown]");
-      const wasHidden = dropdown?.hidden;
-      closeCardMenus("io");
-      if (dropdown) dropdown.hidden = !wasHidden;
+      actionSheetMode = "io";
+      renderPortfolioActionSheet();
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = false;
+      return;
+    }
+    // The header overlays route into the same actions the old dropdown items ran.
+    if (event.target.closest("[data-portfolio-action-close]")) {
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
+      return;
+    }
+    const portfolioAction = event.target.closest("[data-portfolio-action]");
+    if (portfolioAction) {
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
+      const which = portfolioAction.dataset.portfolioAction;
+      if (which === "tx") openTxEditor(null);
+      else if (which === "address") openAddressImport();
+      else if (which === "export") exportCsv();
+      else if (which === "import") modalsEl.querySelector("[data-portfolio-csv-input]")?.click();
       return;
     }
     if (event.target.closest("[data-portfolio-export-csv]")) { closeCardMenus(); exportCsv(); return; }
@@ -1887,21 +2188,12 @@ export function initPortfolio(dependencies) {
     }
     if (event.target.closest("[data-portfolio-io-address]")) {
       closeCardMenus();
-      addressImport = {
-        busy: false, progress: "", input: "",
-        resolving: false, resolvedAddress: null, resolvedDomain: null, notFound: false,
-      };
-      knsResolveSeq += 1; // abandon any lookup left over from a previous open
-      modalsEl.querySelector("[data-portfolio-import-address]").value = "";
-      setImportProgress("");
-      syncImportModal();
-      modalsEl.querySelector("[data-portfolio-import-modal]").hidden = false;
+      openAddressImport();
       return;
     }
-
     const txDelete = event.target.closest("[data-portfolio-tx-delete]");
     if (txDelete) {
-      if (window.confirm("Delete this transaction?")) {
+      if (await confirmOverlay({ title: "Delete transaction?", message: "This removes it from the portfolio. It cannot be undone." })) {
         const portfolio = activePortfolio();
         portfolio.transactions = (portfolio.transactions || []).filter((t) => t.id !== txDelete.dataset.portfolioTxDelete);
         saveState(); render();

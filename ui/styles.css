@@ -7000,6 +7000,16 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-hashrate-value { font-size: 20px; font-weight: 800; }
 .portfolio-hashrate-card svg:not(.portfolio-hashrate-ico svg) { margin-left: auto; }
 .portfolio-converter { display: flex; flex-direction: column; gap: 10px; }
+/* Stats one per row, label left and value right with a divider between (iOS `statRow`). A
+   two-column grid squeezed four figures onto two lines and left the reader matching labels to
+   values by position. */
+.portfolio-stat-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 11px 0; }
+.portfolio-stat-row + .portfolio-stat-row { border-top: 1px solid var(--line); }
+.portfolio-stat-row .portfolio-stat-label { font-size: 13px; color: var(--muted); }
+.portfolio-stat-row .portfolio-stat-value { font-size: 15px; font-weight: 700; text-align: right; }
+.portfolio-hashrate-entry { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.portfolio-hashrate-entry .portfolio-editor-field { flex: 1 1 160px; }
+.portfolio-hashrate-entry .settings-segmented { flex: 0 0 auto; }
 /* Sub-screens stack cards too - the chart, the converter, the stats, the blurb - and they were
    as tight as the main screen's. */
 [data-portfolio-root] > .profile-card { margin-bottom: 18px; }
