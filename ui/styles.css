@@ -7060,7 +7060,8 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-send-status.bad { color: #ff6b60; }
 .cold-send-status.muted { color: var(--muted); }
 .cold-send-status.mono { color: var(--muted); font-family: ui-monospace, monospace; word-break: break-all; }
-.cold-send-locked-recipient { padding: 10px 12px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; }
+.cold-send-locked-recipient { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px; }
+.cold-send-locked-recipient svg { width: 18px; height: 18px; flex: 0 0 auto; fill: none; stroke: var(--kaspa-ink); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .cold-send-locked-recipient code { font-family: ui-monospace, monospace; font-size: 11.5px; word-break: break-all; color: var(--kaspa-ink); }
 .cold-send-amount-wrap { display: flex; align-items: center; gap: 10px; }
 .cold-send-amount-wrap .field-input { flex: 1; }

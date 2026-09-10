@@ -295,6 +295,7 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
 const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+const MERGE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v6a4 4 0 0 0 4 4v6M16 4v6a4 4 0 0 1-4 4"/><path d="m9 17 3 3 3-3"/></svg>`;
 const CLIPBOARD_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2.5" width="8" height="4" rx="1.2"/><path d="M8 4.5H6.5A1.5 1.5 0 0 0 5 6v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H16"/></svg>`;
 const SCAN_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M3 12h18"/></svg>`;
 const PIE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg>`;
@@ -910,7 +911,7 @@ function addressUtxoRowsHtml(entry) {
   // Compound row above the list when >1 UTXO, matching iOS's UTXOs-tab section.
   const compoundRow = addrUtxos.entries.length > 1
     ? `<button type="button" class="cold-compound-row" data-cold-compound>
-         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v6a4 4 0 0 0 4 4v6M16 4v6a4 4 0 0 1-4 4"/><path d="m9 17 3 3 3-3"/></svg>
+         ${MERGE_ICON}
          Compound UTXOs
        </button>
        <p class="cold-compound-note">Combines all UTXOs at this address into a single one, to reduce the number of inputs a future send needs.</p>`
@@ -1585,10 +1586,14 @@ function renderSendFlow() {
         <div class="cold-send-row"><span>Available</span><strong>${fmtKasBig(send.availableSompi)} KAS</strong></div>
       </div>
       ${send.isCompound
-        ? `<p class="field-hint">${send.compoundHasMore
+        // iOS's order: the section is LABELLED, then shows the address it is consolidating, then
+        // explains underneath. Leading with the explanation left the address looking like an
+        // afterthought rather than the subject of the screen.
+        ? `<span class="field-label">Consolidating This Address</span>
+           <div class="cold-send-locked-recipient">${MERGE_ICON}<code>${deps.escapeHtml(send.fromAddress)}</code></div>
+           <p class="field-hint">${send.compoundHasMore
             ? `This address has more than ${KSPT_MAX_INPUTS} UTXOs. KasSigner can sign at most ${KSPT_MAX_INPUTS} inputs per transaction, so this merges the largest ${KSPT_MAX_INPUTS} into one. Run Compound again afterward to keep combining the rest.`
-            : "Merges all of this address's UTXOs into a single one, so future sends need fewer inputs."}</p>
-           <div class="cold-send-locked-recipient"><code>${deps.escapeHtml(send.fromAddress)}</code></div>`
+            : "Merges all of this address's UTXOs into a single one, so future sends need fewer inputs."}</p>`
         : `<label class="field-label">Recipient Address
              <input class="field-input cold-mono-input" type="text" data-cold-send-recipient
                placeholder="kaspa:qr... or name.kas" autocomplete="off" spellcheck="false"
