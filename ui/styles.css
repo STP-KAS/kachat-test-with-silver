@@ -4164,7 +4164,16 @@ body.session-logged-out [data-account-rename-modal] {
   cursor: pointer;
 }
 .manage-address-row:last-child { border-bottom: 0; }
-.manage-address-row:hover { background: var(--surface-1); }
+/* A history row opens a sheet, so it has to READ as clickable. iOS puts an outward arrow in the
+   accent colour on the trailing edge; this does the same, and adds the hover treatment a pointer
+   device expects on top. */
+.manage-address-row { cursor: pointer; border-radius: 10px; transition: background-color .14s ease; }
+.manage-address-row:hover { background: var(--surface-2, rgba(255,255,255,.08)); }
+.manage-address-row-trailing { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: auto; }
+.manage-address-row-open { display: grid; place-items: center; color: var(--kaspa-ink); opacity: .75; }
+.manage-address-row:hover .manage-address-row-open { opacity: 1; }
+.manage-address-row-open svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.cold-sheet-txid { margin: -6px 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
 
 .manage-address-row-icon {
   width: 34px;
@@ -6927,7 +6936,6 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-address-list { display: flex; flex-direction: column; gap: 10px; }
 .cold-addr-label { color: var(--kaspa-ink); font-size: 12.5px; font-weight: 750; }
 .cold-detail-note { margin: 8px 2px; color: var(--muted); font-size: 13.5px; }
-.cold-detail-footnote { margin-top: 16px; }
 
 /* Address Actions capsule with an upward menu (iOS bottom Menu). No `position`
    override here — the wrap must keep the sticky positioning from

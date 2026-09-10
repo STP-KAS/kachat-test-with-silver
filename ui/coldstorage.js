@@ -20,6 +20,7 @@ import {
   fetchSpendableUtxos, utxoKey,
 } from "./kspt.js";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
+import { listPortfolios, addTransactionToPortfolio } from "./portfolio.js";
 
 const COLD_ACCOUNTS_KEY = "kachat-cold-accounts-v1"; // account-scoped: [{ id, label, kpub, addedAt, maxIndex, labels, hidden }]
 const COLD_UTXO_LABELS_KEY = "kachat-cold-utxo-labels-v1"; // account-scoped: { [address]: { [outpointKey]: label } }
@@ -288,6 +289,8 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
 const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+const PIE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg>`;
+const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10.5 13.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M8 12.4l2.6 2.6L16 9.6"/></svg>`;
 const CIRCLE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/></svg>`;
 const EYE_SLASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.9 9.9 0 0 1 12 5c5 0 9 4.5 10 7a15.5 15.5 0 0 1-3.2 4.2"/><path d="M6.5 6.9C4.4 8.3 2.7 10.3 2 12c1 2.5 5 7 10 7a9.7 9.7 0 0 0 4.4-1.05"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>`;
@@ -422,8 +425,7 @@ function renderDetail() {
         : sorted.length === 0
           ? '<p class="cold-detail-note">No addresses discovered yet.</p>'
           : sorted.map((e) => addressRowHtml(account, e)).join("")}
-    </div>
-    <p class="broadcast-intro cold-detail-footnote">Keys never leave your KasSigner — sends are built here, signed on the device by QR, and broadcast after verification.</p>`;
+    </div>`;
 }
 
 /// The half sheet behind "Address Actions" (iOS `addressActionsSheet`).
@@ -456,7 +458,72 @@ function renderColdSheet() {
   if (!coldSheet) return;
   if (coldSheet.kind === "account") return renderColdAccountSheet();
   if (coldSheet.kind === "address") return renderColdAddressSheet();
+  if (coldSheet.kind === "transaction") return renderColdTransactionSheet();
+  if (coldSheet.kind === "portfolio-pick") return renderColdPortfolioPicker();
   renderColdActionsSheet();
+}
+
+/// What to do with one transaction (iOS `TransactionActionsSheet`).
+///
+/// The row used to open the explorer on click, which is fine until there is a second thing you
+/// might want to do with a transaction - and there is. Asking first is what gives Add to Portfolio
+/// somewhere to live that is not a gesture nobody would guess at.
+function renderColdTransactionSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  const tx = coldSheet.tx;
+  if (!body || !tx) return;
+  const when = tx.blockTime ? new Date(Number(tx.blockTime)).toLocaleString() : null;
+  const summary = tx.amountSompi != null
+    ? `${tx.outgoing ? "Sent" : "Received"} ${fmtKasExact(tx.amountSompi)} KAS${when ? ` on ${when}` : ""}`
+    : (when || "Transaction");
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker">${deps.escapeHtml(summary)}</p><h2>Transaction</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    <p class="cold-sheet-txid">${deps.escapeHtml(tx.txId)}</p>
+    <div class="cold-action-rows">
+      ${coldSheetRow({ attr: 'data-cold-tx-explorer', title: "Open in Explorer",
+        subtitle: "Opens this transaction on the block explorer.", icon: EXTERNAL_ICON })}
+      ${tx.amountSompi != null
+        ? coldSheetRow({ attr: 'data-cold-tx-portfolio', title: "Add to Portfolio",
+            subtitle: "Records it as a buy or a sell in a portfolio of your choosing.", icon: PIE_ICON })
+        : ""}
+    </div>`;
+}
+
+/// Which portfolio, when there is more than one. A step of the same sheet rather than a
+/// `window.prompt` asking for a number, which is what the swaps screen still does.
+function renderColdPortfolioPicker() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  if (!body) return;
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker plain">Add to Portfolio</p><h2>Choose a portfolio</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    <div class="cold-action-rows">
+      ${coldSheet.portfolios.map((portfolio) => coldSheetRow({
+        attr: `data-cold-portfolio-pick="${deps.escapeHtml(portfolio.id)}"`,
+        title: deps.escapeHtml(portfolio.name),
+        subtitle: `${coldSheet.tx.outgoing ? "Sell" : "Buy"} ${fmtKasExact(coldSheet.tx.amountSompi)} KAS`,
+        icon: PIE_ICON,
+      })).join("")}
+    </div>`;
+}
+
+/// Records the transaction as a buy (received) or a sell (sent) - the direction the address saw
+/// it, which is the direction the portfolio wants.
+function addColdTxToPortfolio(portfolioId) {
+  const tx = coldSheet?.tx;
+  if (!tx) return;
+  addTransactionToPortfolio(portfolioId, {
+    type: tx.outgoing ? "sell" : "buy",
+    amountKas: Number(tx.amountSompi) / 1e8,
+    notes: `Cold storage ${tx.outgoing ? "send" : "receive"} · ${tx.txId.slice(0, 16)}…`,
+  });
+  closeColdActionsSheet();
+  deps.showToast?.("Added to your portfolio.");
 }
 
 /// The account row's ⋯ (iOS `ColdStorageAccountActionsSheet`).
@@ -690,14 +757,18 @@ function addressTxRowsHtml(entry) {
     const outgoing = info?.isOutgoing === true;
     const dirClass = outgoing ? "outgoing" : "incoming";
     return `
-      <button type="button" class="manage-address-row" data-cold-tx="${deps.escapeHtml(tx.transaction_id || "")}">
+      <button type="button" class="manage-address-row" data-cold-tx="${deps.escapeHtml(tx.transaction_id || "")}"
+        data-cold-tx-out="${outgoing ? "1" : "0"}"${info ? ` data-cold-tx-amount="${Number(info.amountSompi)}"` : ""}${tx.block_time ? ` data-cold-tx-time="${Number(tx.block_time)}"` : ""}>
         <span class="manage-address-row-icon ${dirClass}">${outgoing ? "↑" : "↓"}</span>
         <span class="manage-address-row-meta">
           <strong>${info == null ? "Transaction" : outgoing ? "Sent" : "Received"}</strong>
           <span class="manage-address-row-txid">${deps.escapeHtml(tx.transaction_id || "")}</span>
           ${tx.block_time ? `<span class="manage-address-row-time">${deps.escapeHtml(new Date(Number(tx.block_time)).toLocaleString())}</span>` : ""}
         </span>
-        ${info ? `<span class="manage-address-row-amount ${dirClass}">${outgoing ? "-" : "+"}${fmtKasExact(Number(info.amountSompi))} KAS</span>` : ""}
+        <span class="manage-address-row-trailing">
+          ${info ? `<span class="manage-address-row-amount ${dirClass}">${outgoing ? "-" : "+"}${fmtKasExact(Number(info.amountSompi))} KAS</span>` : ""}
+          <span class="manage-address-row-open" aria-hidden="true">${EXTERNAL_ICON}</span>
+        </span>
       </button>`;
   }).join("");
 }
@@ -1683,6 +1754,22 @@ function buildModals() {
     if (event.target.closest("[data-cold-actions-close]")) { closeColdActionsSheet(); return; }
     // The rows themselves are handled by the root delegate, which the modal is NOT inside - it
     // lives in modalsEl, on document.body - so forward them.
+    if (event.target.closest("[data-cold-tx-explorer]")) {
+      const txId = coldSheet?.tx?.txId;
+      closeColdActionsSheet();
+      if (txId) window.open(deps.explorerTxUrl(txId), "_blank", "noopener");
+      return;
+    }
+    if (event.target.closest("[data-cold-tx-portfolio]")) {
+      const portfolios = listPortfolios();
+      if (!portfolios.length) { deps.showToast?.("No portfolio to add this to yet."); return; }
+      // One portfolio needs no question asked.
+      if (portfolios.length === 1) { addColdTxToPortfolio(portfolios[0].id); return; }
+      openColdSheet({ kind: "portfolio-pick", tx: coldSheet.tx, portfolios });
+      return;
+    }
+    const portfolioPick = event.target.closest("[data-cold-portfolio-pick]");
+    if (portfolioPick) { addColdTxToPortfolio(portfolioPick.dataset.coldPortfolioPick); return; }
     const accountAction = event.target.closest("[data-cold-account-action]");
     if (accountAction) {
       closeColdActionsSheet();
@@ -2650,7 +2737,17 @@ export function initColdStorage(dependencies) {
     if (event.target.closest("[data-cold-compound]")) { openSendFlow({ compound: true }); return; }
     const txRow = event.target.closest("[data-cold-tx]");
     if (txRow) {
-      if (txRow.dataset.coldTx) window.open(deps.explorerTxUrl(txRow.dataset.coldTx), "_blank", "noopener");
+      const txId = txRow.dataset.coldTx;
+      if (!txId) return;
+      openColdSheet({
+        kind: "transaction",
+        tx: {
+          txId,
+          outgoing: txRow.dataset.coldTxOut === "1",
+          amountSompi: txRow.dataset.coldTxAmount ? Number(txRow.dataset.coldTxAmount) : null,
+          blockTime: txRow.dataset.coldTxTime ? Number(txRow.dataset.coldTxTime) : null,
+        },
+      });
       return;
     }
     const utxoRename = event.target.closest("[data-cold-utxo-rename]");
