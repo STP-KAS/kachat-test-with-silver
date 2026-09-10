@@ -26,7 +26,7 @@ import {
 // it makes the bundler responsible for both copying the file and pointing at it.
 import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
-import { listPortfolios, addTransactionToPortfolio } from "./portfolio.js";
+import { listPortfolios, addTransactionToPortfolio, portfolioIdsContainingTx, historicalKasPrice } from "./portfolio.js";
 
 const COLD_ACCOUNTS_KEY = "kachat-cold-accounts-v1"; // account-scoped: [{ id, label, kpub, addedAt, maxIndex, labels, hidden }]
 const COLD_UTXO_LABELS_KEY = "kachat-cold-utxo-labels-v1"; // account-scoped: { [address]: { [outpointKey]: label } }
@@ -468,6 +468,7 @@ function renderColdSheet() {
   if (coldSheet.kind === "address") return renderColdAddressSheet();
   if (coldSheet.kind === "transaction") return renderColdTransactionSheet();
   if (coldSheet.kind === "portfolio-pick") return renderColdPortfolioPicker();
+  if (coldSheet.kind === "portfolio-details") return renderColdPortfolioDetails();
   renderColdActionsSheet();
 }
 
@@ -500,39 +501,159 @@ function renderColdTransactionSheet() {
     </div>`;
 }
 
-/// Which portfolio, when there is more than one. A step of the same sheet rather than a
-/// `window.prompt` asking for a number, which is what the swaps screen still does.
+/// Step 1 - which portfolio (iOS `AddToPortfolioSheet`, `.choosePortfolio`).
+///
+/// A portfolio that already holds this transaction is flagged HERE, while the choice is still
+/// being made, rather than after picking - adding it twice double-counts it in every figure the
+/// portfolio derives. The summary line under the rows says what is about to be recorded, so the
+/// choice is made with the transaction in view.
 function renderColdPortfolioPicker() {
   const body = modalsEl?.querySelector("[data-cold-actions-body]");
   if (!body) return;
+  const duplicates = coldSheet.duplicates || new Set();
   body.innerHTML = `
     <div class="modal-head">
-      <div><p class="modal-kicker plain">Add to Portfolio</p><h2>Choose a portfolio</h2></div>
+      <div><p class="modal-kicker plain">Add to Portfolio</p><h2>Which portfolio?</h2></div>
       <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
     </div>
     <div class="cold-action-rows">
       ${coldSheet.portfolios.map((portfolio) => coldSheetRow({
         attr: `data-cold-portfolio-pick="${deps.escapeHtml(portfolio.id)}"`,
         title: deps.escapeHtml(portfolio.name),
-        subtitle: `${coldSheet.tx.outgoing ? "Sell" : "Buy"} ${fmtKasExact(coldSheet.tx.amountSompi)} KAS`,
+        subtitle: duplicates.has(portfolio.id)
+          ? "Already added. Adding it again will double-count it."
+          : (portfolio.isActive ? "Current" : "&nbsp;"),
         icon: PIE_ICON,
+        warn: duplicates.has(portfolio.id),
       })).join("")}
+    </div>
+    <p class="field-hint cold-actions-summary">${deps.escapeHtml(coldTxSummaryLine(coldSheet.tx))}</p>`;
+}
+
+function coldTxSummaryLine(tx) {
+  const direction = tx.outgoing ? "Sent" : "Received";
+  const when = tx.blockTime ? new Date(Number(tx.blockTime)).toLocaleString() : null;
+  return `${direction} ${fmtKasExact(tx.amountSompi)} KAS${when ? ` on ${when}` : ""}`;
+}
+
+function fmtFiatLike(value, currency) {
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value || 0); }
+  catch { return `${(value || 0).toFixed(2)} ${currency}`; }
+}
+
+function toDatetimeLocalValue(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/// Step 2 - what actually gets recorded, editable first (iOS `.editDetails`).
+///
+/// Every field is prefilled and every field is editable, because only the reader knows what the
+/// transaction really was: money leaving the address looks like a sale and money arriving like a
+/// buy, but a transfer between your own addresses is neither.
+function renderColdPortfolioDetails() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  if (!body) return;
+  const d = coldSheet.details;
+  const total = (Number(d.amount) || 0) * (Number(d.price) || 0);
+  const currency = deps.currencyCode?.() || "USD";
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker plain">${deps.escapeHtml(d.portfolioName)}</p><h2>Transaction Details</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    ${coldSheet.duplicates?.has(d.portfolioId)
+      ? `<p class="field-hint cold-portfolio-warn">This transaction is already in ${deps.escapeHtml(d.portfolioName)}. Adding it again will double-count it.</p>`
+      : ""}
+    <div class="portfolio-editor-body cold-portfolio-form">
+      <div class="settings-segmented full" role="group" aria-label="Type">
+        ${["buy", "sell"].map((kind) => `
+          <button type="button" class="settings-segmented-option ${d.type === kind ? "active" : ""}" data-cold-pf-type="${kind}">
+            ${kind === "buy" ? "Buy" : "Sell"}
+          </button>`).join("")}
+      </div>
+      <label class="portfolio-editor-field">
+        <span>Amount (KAS)</span>
+        <input type="number" step="any" min="0" data-cold-pf-amount value="${deps.escapeHtml(String(d.amount))}" />
+      </label>
+      <label class="portfolio-editor-field">
+        <span>Price per KAS (${deps.escapeHtml(currency)})</span>
+        <input type="number" step="any" min="0" placeholder="${d.priceLoading ? "Looking up…" : "0"}" data-cold-pf-price value="${deps.escapeHtml(String(d.price ?? ""))}" />
+      </label>
+      <div class="portfolio-editor-field cold-portfolio-total"><span>Total</span><span>${deps.escapeHtml(fmtFiatLike(total, currency))}</span></div>
+      <label class="portfolio-editor-field">
+        <span>Date</span>
+        <input type="datetime-local" data-cold-pf-date value="${deps.escapeHtml(d.dateLocal)}" />
+      </label>
+      <label class="portfolio-editor-field">
+        <span>Note</span>
+        <input type="text" maxlength="120" placeholder="Optional" data-cold-pf-notes value="${deps.escapeHtml(d.notes || "")}" />
+      </label>
+      <p class="cold-sheet-txid">${deps.escapeHtml(coldSheet.tx.txId)}</p>
+      <p class="field-hint">Recorded with the row, so this transaction is recognised if you add it again.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" data-cold-pf-back>Back</button>
+      <button class="primary-button" type="button" data-cold-pf-confirm ${(Number(d.amount) || 0) > 0 ? "" : "disabled"}>Add to Portfolio</button>
     </div>`;
 }
 
-/// Records the transaction as a buy (received) or a sell (sent) - the direction the address saw
-/// it, which is the direction the portfolio wants.
-function addColdTxToPortfolio(portfolioId) {
+/// Moves to step 2 with everything prefilled, and starts the historical price lookup.
+function openColdPortfolioDetails(portfolioId) {
+  const portfolio = coldSheet.portfolios.find((p) => p.id === portfolioId);
+  if (!portfolio) return;
+  const tx = coldSheet.tx;
+  const when = tx.blockTime ? Number(tx.blockTime) : Date.now();
+  coldSheet = {
+    ...coldSheet,
+    kind: "portfolio-details",
+    details: {
+      portfolioId,
+      portfolioName: portfolio.name,
+      // Money leaving the address is a sale, money arriving a buy. Both editable.
+      type: tx.outgoing ? "sell" : "buy",
+      amount: Number(tx.amountSompi) / 1e8,
+      price: "",
+      priceLoading: true,
+      timestamp: when,
+      dateLocal: toDatetimeLocalValue(when),
+      notes: "",
+    },
+  };
+  renderColdSheet();
+  historicalKasPrice(when).then((price) => {
+    // Never overwrite something already typed - the lookup can land late.
+    if (coldSheet?.kind !== "portfolio-details" || coldSheet.details.price !== "") return;
+    coldSheet.details.priceLoading = false;
+    if (price != null) coldSheet.details.price = Number(price);
+    renderColdSheet();
+  }).catch(() => {
+    if (coldSheet?.kind !== "portfolio-details") return;
+    coldSheet.details.priceLoading = false;
+    renderColdSheet();
+  });
+}
+
+/// Records it, priced at what it was worth when it happened.
+function confirmColdPortfolioAdd() {
+  const d = coldSheet?.details;
   const tx = coldSheet?.tx;
-  if (!tx) return;
-  addTransactionToPortfolio(portfolioId, {
-    type: tx.outgoing ? "sell" : "buy",
-    amountKas: Number(tx.amountSompi) / 1e8,
-    notes: `Cold storage ${tx.outgoing ? "send" : "receive"} · ${tx.txId.slice(0, 16)}…`,
+  if (!d || !tx || !(Number(d.amount) > 0)) return;
+  addTransactionToPortfolio(d.portfolioId, {
+    type: d.type,
+    amountKas: Number(d.amount),
+    fiatValue: (Number(d.amount) || 0) * (Number(d.price) || 0),
+    timestamp: d.timestamp,
+    notes: d.notes?.trim() ? d.notes.trim() : null,
+    sourceTxId: tx.txId,
+    sourceAddress: detailEntries.find((e) => e.index === activeAddressIndex)?.address ?? null,
   });
   closeColdActionsSheet();
-  deps.showToast?.("Added to your portfolio.");
+  deps.showToast?.(`Added to ${d.portfolioName}.`);
 }
+
+
 
 /// The account row's ⋯ (iOS `ColdStorageAccountActionsSheet`).
 function renderColdAccountSheet() {
@@ -1759,6 +1880,28 @@ function buildModals() {
 
   const actionsModal = modalsEl.querySelector("[data-cold-actions-modal]");
   actionsModal.addEventListener("mousedown", (event) => { if (event.target === actionsModal) closeColdActionsSheet(); });
+  // Typed values live in `coldSheet.details`, not only in the DOM: switching Buy/Sell re-renders
+  // the step, and anything held only in an input would be wiped by that.
+  actionsModal.addEventListener("input", (event) => {
+    if (coldSheet?.kind !== "portfolio-details") return;
+    const target = event.target;
+    if (target.matches("[data-cold-pf-amount]")) coldSheet.details.amount = target.value;
+    else if (target.matches("[data-cold-pf-price]")) { coldSheet.details.price = target.value; coldSheet.details.priceLoading = false; }
+    else if (target.matches("[data-cold-pf-notes]")) coldSheet.details.notes = target.value;
+    else if (target.matches("[data-cold-pf-date]")) {
+      const parsed = target.value ? new Date(target.value).getTime() : NaN;
+      if (Number.isFinite(parsed)) { coldSheet.details.timestamp = parsed; coldSheet.details.dateLocal = target.value; }
+      return;
+    } else return;
+    // Total and the Add button both follow amount and price, refreshed in place rather than by
+    // re-rendering the field being typed into.
+    const total = (Number(coldSheet.details.amount) || 0) * (Number(coldSheet.details.price) || 0);
+    const totalEl = actionsModal.querySelector(".cold-portfolio-total span:last-child");
+    if (totalEl) totalEl.textContent = fmtFiatLike(total, deps.currencyCode?.() || "USD");
+    const confirm = actionsModal.querySelector("[data-cold-pf-confirm]");
+    if (confirm) confirm.disabled = !((Number(coldSheet.details.amount) || 0) > 0);
+  });
+
   actionsModal.addEventListener("click", (event) => {
     if (event.target.closest("[data-cold-actions-close]")) { closeColdActionsSheet(); return; }
     // The rows themselves are handled by the root delegate, which the modal is NOT inside - it
@@ -1772,13 +1915,20 @@ function buildModals() {
     if (event.target.closest("[data-cold-tx-portfolio]")) {
       const portfolios = listPortfolios();
       if (!portfolios.length) { deps.showToast?.("No portfolio to add this to yet."); return; }
-      // One portfolio needs no question asked.
-      if (portfolios.length === 1) { addColdTxToPortfolio(portfolios[0].id); return; }
-      openColdSheet({ kind: "portfolio-pick", tx: coldSheet.tx, portfolios });
+      const duplicates = portfolioIdsContainingTx(coldSheet.tx.txId);
+      const tx = coldSheet.tx;
+      // One portfolio still gets the details step - that is where the type, the price and the
+      // date are confirmed, and skipping it would record guesses. What it skips is the CHOICE.
+      openColdSheet({ kind: "portfolio-pick", tx, portfolios, duplicates });
+      if (portfolios.length === 1) openColdPortfolioDetails(portfolios[0].id);
       return;
     }
     const portfolioPick = event.target.closest("[data-cold-portfolio-pick]");
-    if (portfolioPick) { addColdTxToPortfolio(portfolioPick.dataset.coldPortfolioPick); return; }
+    if (portfolioPick) { openColdPortfolioDetails(portfolioPick.dataset.coldPortfolioPick); return; }
+    const pfType = event.target.closest("[data-cold-pf-type]");
+    if (pfType) { coldSheet.details.type = pfType.dataset.coldPfType; renderColdSheet(); return; }
+    if (event.target.closest("[data-cold-pf-back]")) { coldSheet.kind = "portfolio-pick"; renderColdSheet(); return; }
+    if (event.target.closest("[data-cold-pf-confirm]")) { confirmColdPortfolioAdd(); return; }
     const accountAction = event.target.closest("[data-cold-account-action]");
     if (accountAction) {
       closeColdActionsSheet();

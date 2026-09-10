@@ -1439,11 +1439,36 @@ async function refreshData({ force = false } = {}) {
 /** For the swap screen's "Add to Portfolio": the available portfolios (id + name). */
 export function listPortfolios() {
   ensureDefaultPortfolio();
-  return state.portfolios.map((p) => ({ id: p.id, name: p.name }));
+  return state.portfolios.map((p) => ({ id: p.id, name: p.name, isActive: p.id === state.activePortfolioId }));
+}
+
+/// Which portfolios already hold this on-chain transaction, so a chooser can flag a duplicate
+/// while the choice is still being made rather than silently double-counting it (iOS
+/// `portfolioIdsContaining(sourceTxId:)`).
+export function portfolioIdsContainingTx(sourceTxId) {
+  ensureDefaultPortfolio();
+  const target = String(sourceTxId || "").trim();
+  if (!target) return new Set();
+  const ids = new Set();
+  for (const portfolio of state.portfolios) {
+    if ((portfolio.transactions || []).some((tx) => tx.sourceTxId === target)) ids.add(portfolio.id);
+  }
+  return ids;
+}
+
+/// The KAS price on a given day in the reader's currency, for pricing a transaction at what it
+/// was worth WHEN IT HAPPENED. Today's number on a transaction from last year silently misstates
+/// every figure the portfolio derives from it.
+export async function historicalKasPrice(timestamp) {
+  try { return await resolveDailyPriceSingle(utcDayKey(timestamp), currencyCode()); }
+  catch { return null; }
 }
 
 /** Appends a transaction to a specific portfolio (used by completed swaps). */
-export function addTransactionToPortfolio(portfolioId, { type, amountKas, fiatValue = null, notes = null }) {
+export function addTransactionToPortfolio(portfolioId, {
+  type, amountKas, fiatValue = null, notes = null,
+  timestamp = null, sourceTxId = null, sourceAddress = null,
+} = {}) {
   const portfolio = state.portfolios.find((p) => p.id === portfolioId) || activePortfolio();
   (portfolio.transactions ||= []).push({
     id: nowId(),
@@ -1451,7 +1476,12 @@ export function addTransactionToPortfolio(portfolioId, { type, amountKas, fiatVa
     amountKas: Number(amountKas) || 0,
     fiatValue: Number(fiatValue) || 0,
     notes: notes || null,
-    timestamp: Date.now(),
+    // The time it HAPPENED, not the time it was recorded - a chart replayed over the ledger puts
+    // the transaction on the wrong day otherwise.
+    timestamp: Number(timestamp) || Date.now(),
+    // Recorded so a later add of the same transaction is recognised rather than double-counted.
+    sourceTxId: sourceTxId || null,
+    sourceAddress: sourceAddress || null,
   });
   saveState();
   render();

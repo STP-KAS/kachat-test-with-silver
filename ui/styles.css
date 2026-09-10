@@ -7005,6 +7005,10 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-action-copy strong { font-size: 14px; font-weight: 700; }
 .cold-action-copy small { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .cold-actions-summary { text-align: center; }
+.cold-portfolio-warn { color: #f5a623; }
+.cold-portfolio-form { display: flex; flex-direction: column; gap: 10px; }
+.cold-portfolio-total { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.cold-portfolio-total span:last-child { color: var(--text); font-weight: 700; }
 .cold-actions-busy { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 8px 8px; text-align: center; }
 .cold-actions-busy p { margin: 0; max-width: 38ch; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
 
