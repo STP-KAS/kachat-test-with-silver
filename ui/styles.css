@@ -4065,8 +4065,17 @@ body.session-logged-out [data-account-rename-modal] {
   font-size: 14px;
   flex: 0 0 auto;
 }
-.send-amount-unit:hover { background: var(--surface-2); }
-.send-amount-logo { width: 28px; height: 28px; display: block; object-fit: contain; }
+.send-amount-unit:hover { background: var(--surface-2); border-color: rgba(98,244,208,.4); }
+
+/* Paste and Scan QR: iOS spreads them across the row with an icon each, rather than leaving two
+   bare links huddled at one end. */
+.cold-send-recipient-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cold-send-recipient-actions .cold-inline-link { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
+.cold-send-recipient-actions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/* The unit toggle is the ONLY way to switch between KAS and fiat, so it has to look like the
+   control it is. iOS makes the Kaspa mark (or the currency symbol) the whole button; this keeps
+   the code beside it for a pointer device but gives the mark the room to be seen. */
+.send-amount-logo { width: 22px; height: 22px; display: block; object-fit: contain; flex: 0 0 auto; }
 .send-amount-fiat-symbol {
   width: 28px;
   text-align: center;

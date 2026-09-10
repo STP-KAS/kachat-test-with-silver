@@ -289,6 +289,8 @@ const COPY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9"
 const QR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M9 7V5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5v2"/></svg>`;
 const DOTS_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>`;
+const CLIPBOARD_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2.5" width="8" height="4" rx="1.2"/><path d="M8 4.5H6.5A1.5 1.5 0 0 0 5 6v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H16"/></svg>`;
+const SCAN_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H8M16 3h2.5A2.5 2.5 0 0 1 21 5.5V8M21 16v2.5a2.5 2.5 0 0 1-2.5 2.5H16M8 21H5.5A2.5 2.5 0 0 1 3 18.5V16"/><path d="M3 12h18"/></svg>`;
 const PIE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.18 15.9A10 10 0 1 1 8.1 2.82"/><path d="M22 12A10 10 0 0 0 12 2v10Z"/></svg>`;
 const EXTERNAL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10.5 13.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><path d="M8 12.4l2.6 2.6L16 9.6"/></svg>`;
@@ -1466,11 +1468,11 @@ function renderSendFlow() {
                value="${deps.escapeHtml(send.toInput)}" />
            </label>
            <div data-cold-send-recipient-status>${sendRecipientStatusHtml()}</div>
-           <div style="display:flex; align-items:center; gap:16px;">
-             <button class="cold-inline-link" type="button" data-cold-send-paste>Paste</button>
-             <button class="cold-inline-link" type="button" data-cold-send-scan>Scan QR</button>
+           <div class="cold-send-recipient-actions">
+             <button class="cold-inline-link" type="button" data-cold-send-paste>${CLIPBOARD_ICON}Paste</button>
+             <button class="cold-inline-link" type="button" data-cold-send-scan>${SCAN_ICON}Scan QR</button>
            </div>`}
-      <span class="field-label">Amount (${send.amountUnit === "kas" ? "KAS" : deps.currencyCode?.() || "USD"})</span>
+      <span class="field-label">Amount</span>
       <div class="send-amount-field">
         <button type="button" class="send-amount-unit" data-cold-send-unit title="Tap to switch between KAS and fiat">
           <img src="./ui/assets/kaspa-logo.png" alt="" class="send-amount-logo" ${send.amountUnit === "kas" ? "" : "hidden"} />
