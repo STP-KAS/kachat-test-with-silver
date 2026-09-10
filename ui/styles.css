@@ -7087,6 +7087,10 @@ body.session-logged-out [data-account-rename-modal] {
    takes something off the list. */
 .cold-action-row-warn .cold-action-icon,
 .cold-action-row-warn .cold-action-copy strong { color: #f5a623; }
+/* Amber for a row you can walk back (hiding an address is undone in Address Visibility); red only
+   where the row destroys something. Deleting a portfolio takes every transaction in it with it. */
+.cold-action-row-danger .cold-action-icon,
+.cold-action-row-danger .cold-action-copy strong { color: #ff6b6b; }
 .cold-action-row[disabled] { opacity: .5; cursor: default; }
 .cold-action-icon { display: grid; place-items: center; flex: 0 0 auto; color: var(--kaspa-ink); }
 .cold-action-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

@@ -588,7 +588,7 @@ function renderCardModal() {
       <button type="button" class="cold-action-row" data-portfolio-card-mode="reorder">
         <span class="cold-action-copy"><strong>Reorder Portfolios</strong><small>Sets the order the cards appear in.</small></span>
       </button>
-      <button type="button" class="cold-action-row cold-action-row-warn" data-portfolio-card-mode="delete">
+      <button type="button" class="cold-action-row cold-action-row-danger" data-portfolio-card-mode="delete">
         <span class="cold-action-copy"><strong>Delete ${deps.escapeHtml(portfolio.name)}</strong><small>Removes it and everything recorded in it.</small></span>
       </button>` : `
       <p class="field-hint">This is your only portfolio, so it cannot be deleted or reordered.</p>`}
