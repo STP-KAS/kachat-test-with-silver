@@ -2400,6 +2400,15 @@ function handlePopoverAction(action, post) {
  * snapping back to page one — leaving KaPosts for a moment must not throw away everything the
  * user scrolled in. The Refresh button always reloads.
  */
+/// The addresses this account follows, as KaPosts knows them locally.
+///
+/// Create Chat merges this with both indexer follow lists, the way iOS merges KaPostsFollowStore
+/// with them: a follow made on this device is in localStorage the instant it is tapped, while the
+/// indexer may not have caught up on it yet.
+export function kaPostsFollowingAddresses() {
+  return [...(prefs.following || [])];
+}
+
 export function refreshKaPostsFeed() {
   if (!deps) return;
   if (remotePosts.length > 0 && Date.now() - lastFeedLoadAt < FEED_FRESH_MS) {

@@ -3099,7 +3099,11 @@ body.session-logged-out [data-account-rename-modal] {
 .create-chat-modal {
   width: min(100%, 430px);
   padding: 0 18px 24px;
-  overflow: hidden;
+  overflow-x: hidden;
+  /* The contacts picker made this sheet tall enough to outgrow a short window. It scrolls rather
+     than clips, and Cancel / Add ride along at the top so they are never scrolled out of reach. */
+  max-height: min(88vh, 880px);
+  overflow-y: auto;
 }
 .create-chat-header {
   min-height: 66px;
@@ -3108,6 +3112,13 @@ body.session-logged-out [data-account-rename-modal] {
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--surface-2);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* Full-bleed over the sheet's own gutters, so nothing scrolls visibly past its edges. */
+  margin: 0 -18px;
+  padding: 0 18px;
+  background: #171c23;
 }
 .create-chat-header h2 {
   margin: 0;
@@ -7233,6 +7244,64 @@ body.session-logged-out [data-account-rename-modal] {
 .create-chat-status-bad { color: #ff6b60; font-weight: 650; }
 .create-chat-status-muted { color: var(--muted); }
 .create-chat-status-mono { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+
+/* Who you are about to add, and who you could pick instead. */
+.create-chat-preview {
+  display: flex; align-items: center; gap: 12px; margin: 10px 2px 0;
+  padding: 11px 12px; border-radius: 13px; background: rgba(255,255,255,.05);
+}
+.create-chat-preview-avatar, .create-chat-picker-avatar {
+  flex: 0 0 auto; display: grid; place-items: center; overflow: hidden;
+  border-radius: 50%; background: var(--panel-3); color: var(--kaspa-ink);
+  font-weight: 800; letter-spacing: .01em;
+}
+.create-chat-preview-avatar { width: 44px; height: 44px; font-size: 15px; }
+.create-chat-picker-avatar { width: 36px; height: 36px; font-size: 13px; }
+.create-chat-preview-avatar img, .create-chat-picker-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.create-chat-preview-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.create-chat-preview-name { font-size: 14px; font-weight: 700; }
+.create-chat-preview-name.muted { color: var(--muted); font-weight: 600; }
+.create-chat-preview-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.create-chat-preview-tag {
+  flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--kaspa-ink);
+  padding: 4px 8px; border-radius: 999px; background: rgba(98,244,208,.12);
+}
+
+.create-chat-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.create-chat-picker-head .create-chat-section-title { margin-bottom: 0; }
+.create-chat-picker-search-toggle {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 4px; line-height: 0;
+}
+.create-chat-picker-search-toggle:hover { color: var(--text); }
+.create-chat-picker-search-toggle svg {
+  width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round;
+}
+.create-chat-picker-search { margin-top: 10px; }
+.create-chat-picker-query {
+  width: 100%; box-sizing: border-box; padding: 9px 12px; font: inherit; font-size: 13px;
+  color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px;
+}
+.create-chat-picker-query:focus { outline: none; border-color: rgba(98,244,208,.42); }
+/* The list scrolls on its own so a long follow graph cannot push Name off the bottom of the
+   sheet - the address field and Add stay reachable however many people you follow. */
+.create-chat-picker-list { margin-top: 10px; max-height: 268px; overflow-y: auto; }
+.create-chat-picker-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 8px 8px; border: 0; border-radius: 12px; background: transparent;
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.create-chat-picker-row:hover { background: rgba(255,255,255,.05); }
+.create-chat-picker-row.picked { background: rgba(98,244,208,.09); }
+.create-chat-picker-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.create-chat-picker-name {
+  font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.create-chat-picker-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.create-chat-picker-check { flex: 0 0 auto; color: #30d158; font-weight: 900; }
+.create-chat-picker-empty { margin: 8px 2px; color: var(--muted); font-size: 12.5px; }
 
 /* Nextcloud (connect card, folder browser, photo grid) */
 .nc-connect-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; }

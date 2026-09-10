@@ -1,6 +1,7 @@
 import { KaspaEngine } from "../engine/index.js";
 import { createGroupManager } from "../engine/group-store.js";
-import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification } from "./kaposts.js";
+import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification, kaPostsFollowingAddresses } from "./kaposts.js";
+import { fetchFollowList, requesterPubkeyFor, kaspaAddressFromPubkey } from "../engine/kaposts.js";
 import { initBroadcasts, refreshBroadcasts, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification } from "./broadcasts.js";
 import { initPortfolio, refreshPortfolio, resetPortfolioForAccount } from "./portfolio.js";
 import { initColdStorage, refreshColdStorage, resetColdStorageForAccount, listColdWatchedAddresses, openColdAccountForAddress } from "./coldstorage.js";
@@ -9670,6 +9671,9 @@ function updateCreateChatAddState() {
   if (!raw) {
     renderCreateChatStatus("");
     createChatAddButton.disabled = true;
+    createChatResolvedAddress = "";
+    renderCreateChatPreview();
+    renderCreateChatPicker();
     return;
   }
 
@@ -9684,6 +9688,9 @@ function updateCreateChatAddState() {
       ? '<span class="create-chat-status-good">✓ Valid address</span>'
       : '<span class="create-chat-status-bad">✕ Invalid address format</span>');
     createChatAddButton.disabled = !valid;
+    createChatResolvedAddress = valid ? raw : "";
+    renderCreateChatPreview();
+    renderCreateChatPicker();
     return;
   }
 
@@ -9693,6 +9700,9 @@ function updateCreateChatAddState() {
     // live resolution so Add only enables for a domain that actually exists.
     renderCreateChatStatus('<span class="create-chat-status-muted">Resolving KNS domain…</span>');
     createChatAddButton.disabled = true;
+    createChatResolvedAddress = "";
+    renderCreateChatPreview();
+    renderCreateChatPicker();
     window.setTimeout(async () => {
       if (token !== createChatResolveToken) return;
       try {
@@ -9704,6 +9714,9 @@ function updateCreateChatAddState() {
             + `<span class="create-chat-status-mono">${escapeHtml(resolution.ownerAddress)}</span>`
           );
           createChatAddButton.disabled = false;
+          createChatResolvedAddress = resolution.ownerAddress;
+          renderCreateChatPreview();
+          renderCreateChatPicker();
         } else {
           renderCreateChatStatus('<span class="create-chat-status-bad">✕ KNS domain not found</span>');
         }
@@ -9717,6 +9730,223 @@ function updateCreateChatAddState() {
 
   renderCreateChatStatus('<span class="create-chat-status-bad">✕ Invalid address format</span>');
   createChatAddButton.disabled = true;
+  createChatResolvedAddress = "";
+  renderCreateChatPreview();
+  renderCreateChatPicker();
+}
+
+// ---------------------------------------------------------------------------
+// Create Chat: who you are about to add, and who you could pick instead
+// ---------------------------------------------------------------------------
+
+// The address the modal will actually use: a KNS domain's resolved owner, or the typed address
+// once it validates. Empty until one of those is true, so nothing downstream ever renders a
+// half-typed address as though it were a person.
+let createChatResolvedAddress = "";
+let createChatPickerRows = [];
+let createChatPickerLoaded = false;
+let createChatPickerLoading = false;
+let createChatPickerSearching = false;
+let createChatPickerQuery = "";
+let createChatPreviewToken = 0;
+
+function createChatEffectiveAddress() {
+  return createChatResolvedAddress || "";
+}
+
+/// Who you are about to add, as they will appear once added.
+///
+/// A raw address tells you nothing about whether you typed the right one; a face and a domain do.
+/// Only ever shown for an address the app is confident about - a card flickering through wrong
+/// faces while you type would be worse than no card at all.
+function renderCreateChatPreview() {
+  const card = document.querySelector("[data-create-chat-preview]");
+  if (!card) return;
+  const address = createChatEffectiveAddress();
+  if (!address) {
+    card.hidden = true;
+    card.innerHTML = "";
+    return;
+  }
+
+  const profile = engine.peekKnsAddressProfile?.(address);
+  const info = engine.peekKnsAddressInfo?.(address);
+  const domain = info?.explicitPrimaryDomain || profile?.domainName || null;
+  const avatarUrl = profile?.profile?.avatarUrl || "";
+  const known = (state.contacts || []).find((contact) => contact.address === address);
+  // The domain the resolver already found beats waiting on a profile fetch: if you typed one,
+  // that IS the name.
+  const name = (known && known.nameIsCustom ? known.name : null) || domain;
+  const looking = !profile && !info;
+
+  card.hidden = false;
+  card.innerHTML = `
+    <span class="create-chat-preview-avatar">${avatarUrl
+      ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+      : escapeHtml(initialsFor(name || address))}</span>
+    <span class="create-chat-preview-copy">
+      <span class="create-chat-preview-name${name ? "" : " muted"}">${escapeHtml(name || (looking ? "Looking up…" : "No KNS domain"))}</span>
+      <span class="create-chat-preview-address">${escapeHtml(address)}</span>
+    </span>
+    ${known ? `<span class="create-chat-preview-tag">Already a chat</span>` : ""}`;
+
+  if (looking) {
+    const token = ++createChatPreviewToken;
+    Promise.allSettled([
+      engine.getKnsAddressProfile?.(address),
+      engine.getKnsAddressInfo?.(address),
+    ]).then(() => {
+      if (token !== createChatPreviewToken) return;
+      if (createChatEffectiveAddress() !== address) return;
+      renderCreateChatPreview();
+    });
+  }
+}
+
+/// The rows actually shown: everything, or what the search box matches by name or address.
+function filteredCreateChatPickerRows() {
+  const query = createChatPickerQuery.trim().toLowerCase();
+  if (!createChatPickerSearching || !query) return createChatPickerRows;
+  return createChatPickerRows.filter((row) =>
+    row.name.toLowerCase().includes(query) || row.address.toLowerCase().includes(query));
+}
+
+/// Second line of a row: the follow relationship when there is one, since that is the thing you
+/// would not otherwise know; the short address for someone you simply have a chat with, where the
+/// name above it is already the useful part.
+function createChatPickerSubtitle(row) {
+  if (row.youFollow && row.followsYou) return "You follow each other";
+  if (row.youFollow) return "You follow them";
+  if (row.followsYou) return "Follows you";
+  return shortAddress(row.address);
+}
+
+function renderCreateChatPicker() {
+  const section = document.querySelector("[data-create-chat-picker-section]");
+  const list = document.querySelector("[data-create-chat-picker-list]");
+  const toggle = document.querySelector("[data-create-chat-picker-search-toggle]");
+  const search = document.querySelector("[data-create-chat-picker-search]");
+  if (!section || !list) return;
+
+  // Nothing to offer and nothing on the way: the section stays out of the way entirely rather
+  // than sitting there as an empty heading.
+  if (!createChatPickerLoading && createChatPickerRows.length === 0) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  if (toggle) toggle.hidden = createChatPickerRows.length === 0;
+  if (search) search.hidden = !createChatPickerSearching;
+
+  if (createChatPickerLoading && createChatPickerRows.length === 0) {
+    list.innerHTML = `<p class="create-chat-picker-empty">Loading contacts…</p>`;
+    return;
+  }
+
+  const rows = filteredCreateChatPickerRows();
+  if (rows.length === 0) {
+    list.innerHTML = `<p class="create-chat-picker-empty">No matches</p>`;
+    return;
+  }
+
+  const chosen = createChatEffectiveAddress();
+  list.innerHTML = rows.map((row) => {
+    const avatarUrl = engine.peekKnsAddressProfile?.(row.address)?.profile?.avatarUrl || "";
+    return `
+      <button type="button" class="create-chat-picker-row${row.address === chosen ? " picked" : ""}" data-create-chat-pick="${escapeHtml(row.address)}">
+        <span class="create-chat-picker-avatar">${avatarUrl
+          ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+          : escapeHtml(initialsFor(row.name))}</span>
+        <span class="create-chat-picker-copy">
+          <span class="create-chat-picker-name">${escapeHtml(row.name)}</span>
+          <span class="create-chat-picker-sub">${escapeHtml(createChatPickerSubtitle(row))}</span>
+        </span>
+        ${row.address === chosen ? `<span class="create-chat-picker-check" aria-hidden="true">✓</span>` : ""}
+      </button>`;
+  }).join("");
+}
+
+function buildCreateChatPickerRows(addresses, { known, youFollow, followsYou }) {
+  const mine = engine.address || "";
+  return [...addresses]
+    .filter((address) => address && address !== mine)
+    .map((address) => {
+      const contact = (state.contacts || []).find((entry) => entry.address === address);
+      return {
+        address,
+        name: contact ? displayNameForAddress(contact)
+          : (engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || shortAddress(address)),
+        isContact: known.has(address),
+        youFollow: youFollow.has(address),
+        followsYou: followsYou.has(address),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+/// Everyone you could plausibly want to message: your existing chats plus both directions of your
+/// KaPosts follow graph. A chat you had months ago is buried far down the chat list, so it belongs
+/// here next to the people you follow.
+///
+/// The address book renders first so the list is useful immediately, then the follow lists merge
+/// in when the indexer answers - the network is never on the critical path to a usable picker.
+async function loadCreateChatPicker() {
+  if (createChatPickerLoaded) { renderCreateChatPicker(); return; }
+  createChatPickerLoaded = true;
+  createChatPickerLoading = true;
+
+  const mine = engine.address || "";
+  const known = new Set((state.contacts || []).map((contact) => contact.address).filter((a) => a && a !== mine));
+  const youFollow = new Set(kaPostsFollowingAddresses().filter((a) => a && a !== mine));
+  const followsYou = new Set();
+
+  createChatPickerRows = buildCreateChatPickerRows(new Set([...known, ...youFollow]), { known, youFollow, followsYou });
+  renderCreateChatPicker();
+
+  try {
+    const pubkey = requesterPubkeyFor(engine);
+    if (pubkey) {
+      for (const wantFollowers of [false, true]) {
+        const raw = await fetchFollowList({ engine, pubkey, followers: wantFollowers, limit: 500 });
+        for (const item of raw || []) {
+          const rowPubkey = item?.userPublicKey || item?.publicKey || item?.pubkey
+            || item?.followedPubkey || item?.followerPubkey || item?.user || "";
+          const address = item?.address || kaspaAddressFromPubkey(engine, rowPubkey) || "";
+          if (!address || address === mine) continue;
+          (wantFollowers ? followsYou : youFollow).add(address);
+        }
+      }
+    }
+  } catch {
+    // An unreachable indexer costs the follow rows, not the picker: the address book already
+    // rendered, and there is nothing useful to say about a list nobody asked for out loud.
+  }
+
+  const all = new Set([...known, ...youFollow, ...followsYou]);
+  createChatPickerRows = buildCreateChatPickerRows(all, { known, youFollow, followsYou });
+  createChatPickerLoading = false;
+  renderCreateChatPicker();
+
+  if (all.size === 0) return;
+  // Names and avatars land after the rows do; repaint once they have, so the list ends up sorted
+  // and labelled by domain rather than by truncated address.
+  try {
+    await engine.refreshKnsIfNeeded?.([...all]);
+    if (!contactModal || contactModal.hidden) return;
+    createChatPickerRows = buildCreateChatPickerRows(all, { known, youFollow, followsYou });
+    renderCreateChatPicker();
+  } catch { /* cached names are fine */ }
+}
+
+function resetCreateChatPicker() {
+  createChatPickerLoaded = false;
+  createChatPickerLoading = false;
+  createChatPickerRows = [];
+  createChatPickerSearching = false;
+  createChatPickerQuery = "";
+  createChatResolvedAddress = "";
+  const query = document.querySelector("[data-create-chat-picker-query]");
+  if (query) query.value = "";
 }
 
 function setContactAddressValue(value) {
@@ -9730,7 +9960,9 @@ function setContactAddressValue(value) {
 function showContactModal() {
   contactModal.hidden = false;
   setCreateChatError("");
+  resetCreateChatPicker();
   updateCreateChatAddState();
+  loadCreateChatPicker();
   window.setTimeout(() => contactAddressInput?.focus(), 0);
 }
 
@@ -9738,6 +9970,7 @@ function closeContactModal() {
   contactModal.hidden = true;
   contactForm.reset();
   setCreateChatError("");
+  resetCreateChatPicker();
   updateCreateChatAddState();
 }
 
@@ -11253,7 +11486,28 @@ document.querySelector("[data-logged-out-settings]")?.addEventListener("click", 
 });
 
 contactModal.addEventListener("click", (event) => {
-  if (event.target === contactModal) closeContactModal();
+  if (event.target === contactModal) { closeContactModal(); return; }
+
+  const pick = event.target.closest("[data-create-chat-pick]");
+  if (pick) {
+    // Same as typing it: the row is a shortcut into the field, not a second way to add, so the
+    // preview, the status line and the Add button all come from the one code path.
+    setContactAddressValue(pick.dataset.createChatPick);
+    return;
+  }
+  if (event.target.closest("[data-create-chat-picker-search-toggle]")) {
+    createChatPickerSearching = !createChatPickerSearching;
+    if (!createChatPickerSearching) createChatPickerQuery = "";
+    renderCreateChatPicker();
+    if (createChatPickerSearching) {
+      window.setTimeout(() => document.querySelector("[data-create-chat-picker-query]")?.focus(), 0);
+    }
+  }
+});
+
+document.querySelector("[data-create-chat-picker-query]")?.addEventListener("input", (event) => {
+  createChatPickerQuery = String(event.target.value || "");
+  renderCreateChatPicker();
 });
 
 contactAddressInput?.addEventListener("input", () => {

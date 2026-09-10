@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=337" />
+  <link rel="stylesheet" href="./ui/styles.css?v=338" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -1311,7 +1311,22 @@
         </div>
         <p class="create-chat-help">Enter a Kaspa address (kaspa:...) or KNS domain name (e.g., alice.kas)</p>
         <p class="create-chat-status" data-create-chat-status hidden></p>
+        <div class="create-chat-preview" data-create-chat-preview hidden></div>
         <p class="create-chat-error" data-create-chat-error hidden></p>
+      </section>
+
+      <section class="create-chat-section create-chat-picker" data-create-chat-picker-section hidden>
+        <div class="create-chat-picker-head">
+          <p class="create-chat-section-title">CONTACTS</p>
+          <button type="button" class="create-chat-picker-search-toggle" data-create-chat-picker-search-toggle aria-label="Search contacts">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
+          </button>
+        </div>
+        <div class="create-chat-picker-search" data-create-chat-picker-search hidden>
+          <input type="search" class="create-chat-picker-query" data-create-chat-picker-query placeholder="Search contacts" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="create-chat-picker-list" data-create-chat-picker-list></div>
+        <p class="create-chat-help">Your chats and the people you follow on KaPosts. Click one to fill in their address.</p>
       </section>
 
       <section class="create-chat-section create-chat-name-section">
@@ -2720,7 +2735,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=353"></script>
+  <script type="module" src="./ui/app.js?v=354"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>
