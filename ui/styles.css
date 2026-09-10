@@ -1,5 +1,9 @@
 :root {
   color-scheme: dark;
+  /* How much room the floating dock takes at the bottom of the window. Panes that must stay clear
+     of it reserve this; the chats list deliberately runs underneath it and pads its scroll
+     content by the same amount instead. */
+  --dock-inset: 124px;
   --bg: #070a0d;
   --panel: #101419;
   --panel-2: #151a21;
@@ -128,7 +132,7 @@ button { cursor: pointer; }
   /* The dock floats over the bottom of every screen now, so every screen reserves its height AND
      the gap under it - otherwise the last row of a list, or the message composer, ends up tucked
      right against it with no air, which is what made the dock look squeezed in. */
-  padding-bottom: 124px;
+  padding-bottom: var(--dock-inset);
 }
 
 .app-sidebar {
@@ -145,15 +149,21 @@ button { cursor: pointer; }
   /* Containing block for the compose button, which floats over the chats list rather than over the
      window - see .new-chat-fab. */
   position: relative;
+  /* Reclaim the dock's reserved strip so the list reaches the bottom of the window and passes
+     BEHIND the dock. Stopping short of it left a hard horizontal edge partway down the screen,
+     with the chat rows cut off against nothing - the list looked truncated rather than scrolled.
+     The scroll content below pads by the same amount, so the last row still ends up clear of the
+     dock; it just gets there by scrolling under it, the way the phones do it. */
+  margin-bottom: calc(-1 * var(--dock-inset));
 }
 
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Bottom inset clears the compose button, so the last chat in a full list can still be read and
-     clicked instead of sitting under it. */
-  padding: 0 12px 90px;
+  /* Bottom inset clears the dock AND the compose button, so the last chat in a full list can be
+     scrolled out from under both instead of being stranded there. */
+  padding: 0 12px calc(var(--dock-inset) + 90px);
   display: flex;
   flex-direction: column;
 }
@@ -296,7 +306,7 @@ button { cursor: pointer; }
 .new-chat-fab {
   position: absolute;
   right: 20px;
-  bottom: 20px;
+  bottom: calc(var(--dock-inset) + 20px);
   z-index: 500;
   width: 58px;
   height: 58px;
@@ -325,7 +335,6 @@ button { cursor: pointer; }
   .app-body.detail-active .app-sidebar { display: none; }
   .app-body.detail-active .app-detail { display: flex; flex: 1 1 auto; width: 100%; }
   .app-body.conversation-open ~ .sidebar-tabbar { display: none; }
-  .sidebar-scroll { padding-bottom: 16px; }
 }
 
 /* Step 104 — Settings-only overlay, opened via the topbar health button or
@@ -4758,6 +4767,9 @@ body.session-logged-out [data-account-rename-modal] {
 /* Bottom action bar shown while selecting chats. */
 .app-sidebar:has(.chat-selection-bar:not([hidden])) .new-chat-fab { display: none; }
 .chat-selection-bar {
+  /* Sits above the dock rather than under it - the list may scroll behind the dock, but a bar of
+     buttons cannot. */
+  margin-bottom: var(--dock-inset);
   display: flex;
   gap: 8px;
   padding: 10px 14px;
@@ -6569,7 +6581,8 @@ body.session-logged-out [data-account-rename-modal] {
 /* Floating dock must never cover the tail of the Profile scroll (the About card) —
    same dodge the composer and cold-storage actions use. */
 .app-placeholder-screen { padding-bottom: 24px; }
-.sidebar-scroll { padding-bottom: 24px; }
+/* .sidebar-scroll is deliberately absent: the chats list runs under the dock and sets its own
+   inset from --dock-inset (see the rule beside .app-sidebar). A flat 24px here silently beat it. */
 .kaposts-screen { padding-bottom: 16px; }
 .kaposts-content { padding-bottom: 24px; }
 .broadcasts-screen { padding-bottom: 16px; }
@@ -8678,6 +8691,7 @@ body.session-logged-out [data-account-rename-modal] {
      mid-thread. Its own bottom inset (below) keeps the composer clear of it. */
   .app-body.conversation-open ~ .sidebar-tabbar { display: flex; }
 
-  /* Reserve the dock's height so nothing sits underneath it. */
-  .app-body { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  /* Reserve the dock's height so nothing sits underneath it - except the chats list, which is
+     meant to run under it (see .app-sidebar). */
+  :root { --dock-inset: calc(80px + env(safe-area-inset-bottom, 0px)); }
 }
