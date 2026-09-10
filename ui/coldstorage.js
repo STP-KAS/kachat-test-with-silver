@@ -1787,31 +1787,173 @@ async function loadDetail({ useCache = true } = {}) {
     if (changed) render();
   })();
 
-  // Backfill Used/Unused for zero-balance addresses, 4 requests at a time (sequential made
-  // this crawl on big accounts; unbounded parallel risks the REST host rate-limiting).
+  // Used/Unused for the zero-balance addresses. ONE request for the whole list: that is what
+  // `POST /addresses/active` answers, and it is the same question this used to ask one address at
+  // a time through `full-transactions?limit=1` - four in flight at a time, which still crawled on
+  // a big account. Falls back to the per-address requests only where the bulk route is absent.
   const pending = detailEntries.filter((e) => (e.balanceSompi || 0) === 0 && e.everUsed === undefined);
-  await mapWithConcurrency(pending, 4, async (entry) => {
-    if (detailToken !== token) return;
-    const used = await addressHasHistory(entry.address);
-    if (detailToken !== token) return;
+  const markUsed = (entry, used) => {
     entry.everUsed = used;
     const row = rootEl?.querySelector(`[data-cold-address-row="${entry.index}"] .spending-address-row-head`);
     if (row && !row.querySelector("[data-cold-usage-cell]")) {
       row.insertAdjacentHTML("beforeend",
         `<span class="spending-address-usage ${used ? "used" : "unused"}" data-cold-usage-cell="${entry.index}">${used ? "Used" : "Unused"}</span>`);
     }
-  });
+  };
+  let bulkActive = null;
+  if (pending.length) {
+    try { bulkActive = await fetchActiveAddresses(pending.map((e) => e.address)); }
+    catch { bulkActive = null; }
+  }
+  if (detailToken !== token) return;
+  if (bulkActive) {
+    for (const entry of pending) markUsed(entry, bulkActive.has(entry.address));
+  } else {
+    await mapWithConcurrency(pending, 4, async (entry) => {
+      if (detailToken !== token) return;
+      const used = await addressHasHistory(entry.address);
+      if (detailToken !== token) return;
+      markUsed(entry, used);
+    });
+  }
   if (detailToken === token) persistAccountCache(account.id);
 }
 
-// Scans forward from index 0, stopping after GAP_LIMIT consecutive never-used addresses,
-// and raises maxIndex to cover every used address found (+1 fresh) — mirrors iOS's
-// ColdStorageManager.discoverAddresses.
+/// How deep a discover looks. The whole window is asked about in ONE request, so depth costs
+/// almost nothing - unlike the gap-limit walk this replaces, where every extra index was another
+/// round trip and the scan therefore had to give up early.
+const DISCOVER_DEPTH = 1000;
+/// Addresses per `POST /addresses/active` request, and how many of those to have in flight.
+///
+/// Measured from the browser against api.kaspa.org: 250 answers in ~350ms and 300 in ~315ms, but
+/// 500 in one body stalls past 25 seconds - so the ceiling is real and it is well under 500.
+/// 250 x 2 in flight sweeps a 1000-address window in about 0.7 seconds, four requests total.
+const ACTIVE_BATCH = 250;
+const ACTIVE_CONCURRENCY = 2;
+/// KNS has no bulk endpoint, so domain ownership is only probed this far in - and now only for
+/// addresses the chain says were actually touched, which is a handful rather than all of them.
+const KNS_PROBE_DEPTH = 200;
+
+/// Which of these addresses the chain has ever seen, in one request per [ACTIVE_BATCH].
+///
+/// `POST /addresses/active` is the endpoint that makes a fast discover possible: it answers
+/// "has this address ever been used, and when" for a whole list at once. Returns a Map of
+/// address -> lastTxBlockTime (0 when active with no timestamp), or null if the configured REST
+/// server does not serve the route, which is the signal to fall back to the old walk.
+async function fetchActiveAddresses(addresses) {
+  const base = String(getEndpoint("kaspaApi") || "https://api.kaspa.org").replace(/\/+$/, "");
+  const slices = [];
+  for (let i = 0; i < addresses.length; i += ACTIVE_BATCH) slices.push(addresses.slice(i, i + ACTIVE_BATCH));
+  const active = new Map();
+  let next = 0;
+  let unavailable = false;
+  await Promise.all(Array.from({ length: Math.min(ACTIVE_CONCURRENCY, slices.length) }, async () => {
+    while (next < slices.length && !unavailable) {
+      const slice = slices[next++];
+      let rows;
+      try {
+        const response = await fetch(`${base}/addresses/active`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ addresses: slice }),
+          cache: "no-store",
+          // A stall here must not hang the whole discover; treat it as "route unavailable" and
+          // let the caller fall back rather than leaving a spinner up indefinitely.
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!response.ok) { unavailable = true; return; }
+        rows = await response.json();
+      } catch { unavailable = true; return; }
+      if (!Array.isArray(rows)) { unavailable = true; return; }
+      for (const row of rows) {
+        if (row?.active) active.set(String(row.address), Number(row.lastTxBlockTime) || 0);
+      }
+    }
+  }));
+  return unavailable ? null : active;
+}
+
+/// Finds every address in this account worth showing, and raises maxIndex to cover them.
+///
+/// ## Why this is not a gap-limit walk any more
+///
+/// It was: derive a window, check it, stop at the first window with nothing in it. Two problems,
+/// and they pull in opposite directions. It was SLOW - the used/unused answer came from one
+/// `full-transactions` request per address, so a 512-index scan was hundreds of round trips, tens
+/// of seconds of them. And it was INCOMPLETE - stopping at the first empty window means a balance
+/// sitting past a gap is unreachable, with nothing in the UI to say so. That was reported: a
+/// funded address at index 291 that discovery would never find.
+///
+/// `POST /addresses/active` answers "was this address ever used" for a whole list at once, which
+/// removes the reason to walk at all. The entire window goes out in two requests, the chain says
+/// which handful of addresses were ever touched, and only those cost anything further: balances
+/// come from one batched UTXO call, and KNS - the part that actually made this slow, one
+/// sequential HTTP lookup per address - is asked only about addresses the chain already says are
+/// real. A balance or a domain cannot exist on an address that has never been touched, so
+/// nothing is lost by that filter.
 async function discoverAddresses(account) {
-  // Scans in gap-limit-sized windows: one batched gRPC balance call per 20 addresses, then
-  // history checks (4-wide) only for the unfunded ones. Stops after the first window with no
-  // activity — same result as the sequential per-address scan (a fully-unused window IS 20+
-  // consecutive unused addresses past the last used one), at a fraction of the round trips.
+  let addresses;
+  try { addresses = deriveReceiveAddresses(account.kpub, 0, DISCOVER_DEPTH); }
+  catch { return discoverAddressesByWalk(account); }
+  if (activeAccountId !== account.id) return;
+
+  let active;
+  try { active = await fetchActiveAddresses(addresses); }
+  catch { active = null; }
+  // The configured REST server does not serve /addresses/active (or could not be reached). The
+  // old walk is slower and shallower, but it is the difference between a slow answer and none.
+  if (!active) return discoverAddressesByWalk(account);
+  if (activeAccountId !== account.id) return;
+
+  const touched = addresses
+    .map((address, index) => ({ address, index }))
+    .filter(({ address }) => active.has(address));
+
+  // Balances for the touched addresses only - one batched call over a handful rather than over
+  // the whole window.
+  let balances = new Map();
+  if (touched.length) {
+    try { balances = await fetchBalancesBatch(touched.map((t) => t.address)); }
+    catch { /* a balance we cannot read is not evidence of an empty one; KNS still decides below */ }
+    for (const [address, sompi] of balances) balanceCache.set(address, sompi);
+  }
+  if (activeAccountId !== account.id) return;
+
+  // KNS, concurrently, and only for addresses the chain says exist. This is the step that used to
+  // dominate the whole scan as 200 sequential lookups.
+  const knsCandidates = touched.filter(({ index, address }) =>
+    index < KNS_PROBE_DEPTH && !((balances.get(address) || 0) > 0));
+  const ownsDomain = new Set();
+  if (knsCandidates.length) {
+    try {
+      await deps.engine.refreshKnsIfNeeded?.(knsCandidates.map((c) => c.address));
+      for (const { address } of knsCandidates) {
+        if (deps.engine.peekKnsAddressInfo?.(address)?.allDomains?.length) ownsDomain.add(address);
+      }
+    } catch { /* tags are a nicety; a balance is what actually matters here */ }
+  }
+
+  // An address is worth surfacing when it HOLDS something - a balance or a domain. Having merely
+  // been used once and emptied is what the Used badge is for, not what this list is for.
+  let lastMatchIndex = -1;
+  for (const { index, address } of touched) {
+    if ((balances.get(address) || 0) > 0 || ownsDomain.has(address)) lastMatchIndex = Math.max(lastMatchIndex, index);
+  }
+  // Nothing held anywhere: keep at least the addresses the chain has seen, so a used-and-emptied
+  // account still shows its history rather than collapsing to one row.
+  if (lastMatchIndex < 0 && touched.length) lastMatchIndex = touched[touched.length - 1].index;
+
+  const discovered = lastMatchIndex + 1;
+  if (discovered > account.maxIndex) {
+    account.maxIndex = discovered;
+    saveState();
+  }
+}
+
+/// The pre-4.1 scan, kept only for a REST server without `/addresses/active`. Windowed gap-limit
+/// walk: one batched balance call per window, then a history request for each unfunded address,
+/// stopping at the first window with nothing in it.
+async function discoverAddressesByWalk(account) {
   const HARD_STOP = 512; // far beyond any real wallet; guards against a pathological kpub
   let lastUsedIndex = -1;
   let windowStart = 0;
