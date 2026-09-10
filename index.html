@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=322" />
+  <link rel="stylesheet" href="./ui/styles.css?v=323" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -2008,8 +2008,9 @@
   </div>
 
   <div class="profile-qr-overlay" data-profile-qr-overlay hidden role="dialog" aria-modal="true" aria-label="Enlarged Kaspa address QR code">
-    <div class="profile-qr-overlay-card" aria-hidden="true">
-      <canvas width="512" height="512" data-profile-qr-overlay-canvas></canvas>
+    <div class="profile-qr-overlay-card">
+      <canvas width="512" height="512" data-profile-qr-overlay-canvas aria-hidden="true"></canvas>
+      <p class="qr-tap-hint">Tap anywhere to copy</p>
     </div>
   </div>
 
@@ -2036,6 +2037,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
           <span data-i18n="action.copyAddress">Copy Address</span>
         </button>
+        <p class="qr-tap-hint">Tap anywhere to copy</p>
       </div>
     </div>
   </div>
@@ -2718,7 +2720,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=333"></script>
+  <script type="module" src="./ui/app.js?v=334"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>

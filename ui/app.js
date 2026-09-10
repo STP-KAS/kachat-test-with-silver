@@ -6943,6 +6943,20 @@ function closeChattingAddressScreen() {
 
 document.querySelector("[data-open-chatting-address]")?.addEventListener("click", openChattingAddressScreen);
 document.querySelector("[data-close-chatting-address]")?.addEventListener("click", closeChattingAddressScreen);
+
+// Tap anywhere on the chatting-address card to copy it (iOS ChattingAddressQRView). The whole
+// screen is the target, not just the Copy button - the QR and the address text are what a reader
+// is looking at, so those are what they will reach for. The back button and the copy button keep
+// their own behaviour.
+document.querySelector("[data-chatting-address-screen] .chatting-address-body")?.addEventListener("click", async (event) => {
+  if (event.target.closest("[data-copy-engine-address]")) return; // its own handler copies
+  const target = chattingAddressScreenAddress || engine.address;
+  if (!target) return;
+  try {
+    await copyTextToClipboard(target);
+    showCopyToast(addressCopiedToastText(target));
+  } catch (error) { appendEngineLog(`Copy failed: ${error.message}`); }
+});
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && chattingAddressScreen && !chattingAddressScreen.hidden) closeChattingAddressScreen();
 });
@@ -16356,7 +16370,14 @@ profileQrCard?.addEventListener("click", () => {
   profileQrOverlay.hidden = false;
 });
 
-profileQrOverlay?.addEventListener("click", () => {
+profileQrOverlay?.addEventListener("click", async () => {
+  const target = chattingAddressScreenAddress || engine.address;
+  if (target) {
+    try {
+      await copyTextToClipboard(target);
+      showCopyToast(addressCopiedToastText(target));
+    } catch (error) { appendEngineLog(`Copy failed: ${error.message}`); }
+  }
   profileQrOverlay.hidden = true;
 });
 

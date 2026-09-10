@@ -1717,6 +1717,7 @@ function buildModals() {
         <p class="cold-qr-address" data-cold-qr-address></p>
         <p class="cold-qr-note" data-cold-qr-note hidden></p>
         <button class="cold-qr-copy" type="button" data-cold-qr-copy>${COPY_ICON}Copy Address</button>
+        <p class="qr-tap-hint dark">Tap anywhere to copy</p>
       </div>
     </div>
     <div class="modal-backdrop" data-cold-actions-modal hidden>
@@ -1793,6 +1794,15 @@ function buildModals() {
   const qrModal = modalsEl.querySelector("[data-cold-qr-modal]");
   modalsEl.querySelector("[data-cold-qr-close]").addEventListener("click", closeQrModal);
   qrModal.addEventListener("mousedown", (event) => { if (event.target === qrModal) closeQrModal(); });
+  // Tap anywhere on the card, not only the button (iOS ColdStorageAddressQRView). The close
+  // button keeps its own job.
+  modalsEl.querySelector(".cold-qr-card")?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-cold-qr-close]") || event.target.closest("[data-cold-qr-copy]")) return;
+    const payload = qrModal.dataset.payload;
+    if (!payload) return;
+    navigator.clipboard?.writeText(payload);
+    deps.showToast?.(qrModal.dataset.copyToast || "Copied to clipboard.");
+  });
   modalsEl.querySelector("[data-cold-qr-copy]").addEventListener("click", () => {
     const payload = qrModal.dataset.payload;
     if (!payload) return;
