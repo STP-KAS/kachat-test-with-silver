@@ -1774,6 +1774,25 @@ function buildModals() {
       return;
     }
 
+    // --- Add and Import / Export sheet ---
+    // These route into the same actions the old dropdown items ran. They belong here rather than
+    // on the pane's own listener: modalsEl is appended to document.body, so a click inside the
+    // sheet never bubbles through [data-portfolio-root] and nothing in it can be reached from there.
+    if (event.target.closest("[data-portfolio-action-close]")) {
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
+      return;
+    }
+    const portfolioAction = event.target.closest("[data-portfolio-action]");
+    if (portfolioAction) {
+      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
+      const which = portfolioAction.dataset.portfolioAction;
+      if (which === "tx") openTxEditor(null);
+      else if (which === "address") openAddressImport();
+      else if (which === "export") exportCsv();
+      else if (which === "import") modalsEl.querySelector("[data-portfolio-csv-input]")?.click();
+      return;
+    }
+
     // --- Card settings overlay ---
     if (event.target.closest("[data-portfolio-card-close]")) {
       modalsEl.querySelector("[data-portfolio-card-modal]").hidden = true;
@@ -2196,21 +2215,6 @@ export function initPortfolio(dependencies) {
       actionSheetMode = "io";
       renderPortfolioActionSheet();
       modalsEl.querySelector("[data-portfolio-action-modal]").hidden = false;
-      return;
-    }
-    // The header overlays route into the same actions the old dropdown items ran.
-    if (event.target.closest("[data-portfolio-action-close]")) {
-      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
-      return;
-    }
-    const portfolioAction = event.target.closest("[data-portfolio-action]");
-    if (portfolioAction) {
-      modalsEl.querySelector("[data-portfolio-action-modal]").hidden = true;
-      const which = portfolioAction.dataset.portfolioAction;
-      if (which === "tx") openTxEditor(null);
-      else if (which === "address") openAddressImport();
-      else if (which === "export") exportCsv();
-      else if (which === "import") modalsEl.querySelector("[data-portfolio-csv-input]")?.click();
       return;
     }
     if (event.target.closest("[data-portfolio-export-csv]")) { closeCardMenus(); exportCsv(); return; }
