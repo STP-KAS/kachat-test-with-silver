@@ -2485,18 +2485,43 @@ async function discoverAddresses(account) {
   // An address is worth surfacing when it HOLDS something - a balance or a domain. Having merely
   // been used once and emptied is what the Used badge is for, not what this list is for.
   let lastMatchIndex = -1;
+  const matchedIndices = new Set();
   for (const { index, address } of touched) {
-    if ((balances.get(address) || 0) > 0 || ownsDomain.has(address)) lastMatchIndex = Math.max(lastMatchIndex, index);
+    if ((balances.get(address) || 0) > 0 || ownsDomain.has(address)) {
+      matchedIndices.add(index);
+      lastMatchIndex = Math.max(lastMatchIndex, index);
+    }
   }
   // Nothing held anywhere: keep at least the addresses the chain has seen, so a used-and-emptied
   // account still shows its history rather than collapsing to one row.
-  if (lastMatchIndex < 0 && touched.length) lastMatchIndex = touched[touched.length - 1].index;
-
-  const discovered = lastMatchIndex + 1;
-  if (discovered > account.maxIndex) {
-    account.maxIndex = discovered;
-    saveState();
+  if (lastMatchIndex < 0 && touched.length) {
+    lastMatchIndex = touched[touched.length - 1].index;
+    for (const { index } of touched) matchedIndices.add(index);
   }
+
+  // Raising the bound is not enough on its own. Rows default to VISIBLE unless explicitly hidden,
+  // so a match at index 291 would raise the bound to 292 and fill this account's list with 291
+  // empty rows - which is exactly what both phones sweep up here and desktop never did. It only
+  // showed once the scan started reaching a thousand deep with no gap limit to stop it early.
+  //
+  // Anything the scan MATCHED is un-hidden instead: a previously-hidden address that now holds a
+  // balance would otherwise be found and dropped straight back out of the list, which reads as
+  // not finding it at all.
+  //
+  // Strict `>` against the STORED bound, and a half-open range - the shape iOS and Android both
+  // use. A closed range here would be silently empty rather than fatal, being JavaScript, but it
+  // would be wrong in the same way.
+  const previousMax = account.maxIndex;
+  const hiddenSet = new Set(account.hidden.map(Number));
+  if (lastMatchIndex > previousMax) {
+    for (let i = previousMax + 1; i < lastMatchIndex; i++) {
+      if (!matchedIndices.has(i)) hiddenSet.add(i);
+    }
+    account.maxIndex = lastMatchIndex + 1;
+  }
+  for (const index of matchedIndices) hiddenSet.delete(index);
+  account.hidden = [...hiddenSet];
+  saveState();
 }
 
 /// The pre-4.1 scan, kept only for a REST server without `/addresses/active`. Windowed gap-limit
