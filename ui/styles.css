@@ -6424,6 +6424,12 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-detail-24h { font-size: 14px; font-weight: 700; }
 .portfolio-detail-24h.gain { color: var(--kaspa-ink); }
 .portfolio-detail-24h.loss { color: #ff5a5a; }
+/* The value screen's change sits UNDER the big number rather than beside it: a six-figure
+   portfolio and its change have nowhere to go on one line. */
+.portfolio-detail-change { display: flex; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 700; margin: -6px 0 10px; }
+.portfolio-detail-change.gain { color: var(--kaspa-ink); }
+.portfolio-detail-change.loss { color: #ff5a5a; }
+.portfolio-detail-change-range { font-size: 12px; font-weight: 650; color: var(--muted); }
 .portfolio-ranges-wide { margin-top: 12px; }
 .portfolio-ranges-wide .portfolio-range { flex: 1; text-align: center; padding: 7px 0; }
 
@@ -6474,6 +6480,18 @@ body.session-logged-out [data-account-rename-modal] {
   cursor: pointer; padding: 2px 6px; line-height: 1;
 }
 .portfolio-tx-delete:hover { color: #ff6b6b; }
+/* Select mode over the transaction list. The row keeps its shape - only a checkbox appears on the
+   left - so the list does not reflow into something unrecognisable the moment Select is pressed. */
+.portfolio-tx-check {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 900; color: transparent; transition: background .12s, border-color .12s;
+}
+.portfolio-tx-check.on { background: var(--kaspa-ink); border-color: var(--kaspa-ink); color: #07130f; }
+.portfolio-tx-row.selecting { user-select: none; }
+.portfolio-tx-row.picked { background: rgba(112, 224, 192, .07); }
+.portfolio-select-delete { color: #ff6b6b; }
+.cold-inline-link[disabled] { opacity: .35; cursor: default; }
 /* Transaction editor + address import modals */
 .portfolio-editor-modal { max-width: 420px; }
 .portfolio-editor-body { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }

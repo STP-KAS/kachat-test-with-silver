@@ -98,6 +98,31 @@ let cardModalId = null;
 let cardModalMode = "menu"; // "menu" | "rename" | "delete"
 /// Which of the two header overlays is open.
 let actionSheetMode = "add"; // "add" | "io"
+/// Multi-select over the transaction list (iOS's EditMode on PortfolioTransactionsView).
+///
+/// Deleting one transaction has always been a row-level x. Deleting the forty rows a bad CSV
+/// import left behind was forty confirmations, which is why iOS grew a Select mode and why this
+/// one exists.
+let selecting = false;
+let selectedTxIds = new Set();
+
+function exitSelectMode() {
+  selecting = false;
+  selectedTxIds.clear();
+}
+
+/// Repaint just the two header controls that count. Toggling a row full-renders otherwise, which
+/// throws away the scroll position on a long list - the exact list where this mode earns its keep.
+function refreshSelectionUi() {
+  const total = rootEl ? rootEl.querySelectorAll("[data-portfolio-tx-select]").length : 0;
+  const all = rootEl?.querySelector("[data-portfolio-select-all]");
+  const del = rootEl?.querySelector("[data-portfolio-delete-selected]");
+  if (all) all.textContent = total > 0 && selectedTxIds.size === total ? "Deselect All" : "Select All";
+  if (del) {
+    del.textContent = `Delete (${selectedTxIds.size})`;
+    del.disabled = selectedTxIds.size === 0;
+  }
+}
 let converterKas = "1";
 let converterFiat = "";
 
@@ -456,8 +481,13 @@ function summaryCardHtml(summary) {
 function transactionRowHtml(tx) {
   const isBuy = tx.type !== "sell";
   const needsPrice = isPricePending(tx.notes);
+  const picked = selectedTxIds.has(tx.id);
+  // In select mode the row toggles instead of opening the editor, and the row-level delete goes
+  // away: two ways to delete on one row, one of them ignoring the selection, is a trap.
+  const attr = selecting ? `data-portfolio-tx-select="${tx.id}"` : `data-portfolio-tx-edit="${tx.id}"`;
   return `
-    <div class="portfolio-tx-row" data-portfolio-tx-edit="${tx.id}" role="button" tabindex="0">
+    <div class="portfolio-tx-row${selecting ? " selecting" : ""}${picked ? " picked" : ""}" ${attr} role="button" tabindex="0" ${selecting ? `aria-pressed="${picked}"` : ""}>
+      ${selecting ? `<span class="portfolio-tx-check${picked ? " on" : ""}" aria-hidden="true">${picked ? "✓" : ""}</span>` : ""}
       <span class="portfolio-tx-icon ${isBuy ? "buy" : "sell"}">${isBuy ? "↓" : "↑"}</span>
       <div class="portfolio-tx-main">
         <span class="portfolio-tx-type ${isBuy ? "buy" : "sell"}">${isBuy ? "Buy" : "Sell"}${needsPrice ? ' <span class="portfolio-tx-warn" title="Price is still loading, it will fill in automatically. Click to set it yourself.">⚠</span>' : ""}</span>
@@ -468,7 +498,7 @@ function transactionRowHtml(tx) {
         <span class="portfolio-tx-amount">${fmtKas(tx.amountKas)}</span>
         <span class="portfolio-tx-fiat">${fmtFiat(tx.fiatValue || 0)}</span>
       </div>
-      <button class="portfolio-tx-delete" type="button" data-portfolio-tx-delete="${tx.id}" aria-label="Delete transaction">×</button>
+      ${selecting ? "" : `<button class="portfolio-tx-delete" type="button" data-portfolio-tx-delete="${tx.id}" aria-label="Delete transaction">×</button>`}
     </div>`;
 }
 
@@ -943,6 +973,12 @@ function valueStatsHtml(summary) {
 // Full-screen Value Over Time chart screen.
 function valueViewHtml(summary) {
   const latest = valuePoints.length ? valuePoints[valuePoints.length - 1][1] : summary.currentValue;
+  // The move across the SELECTED range, so pressing 7D answers "how did this do this week" rather
+  // than repeating one figure under every button. Both the money and the percent, because on a
+  // portfolio the amount is the part people actually feel - iOS shows both here for that reason,
+  // and only the percent on the price screen, where an amount per KAS says very little.
+  const ranged = rangeChange(valuePoints);
+  const up = ranged ? ranged.amount >= 0 : true;
   return `
     <div class="portfolio-screen-header">
       <button class="portfolio-back-btn" type="button" data-portfolio-back aria-label="Back">‹ Portfolio</button>
@@ -951,6 +987,11 @@ function valueViewHtml(summary) {
       <p class="profile-card-label" data-portfolio-value-label>Portfolio Value</p>
       <div class="portfolio-detail-date" data-portfolio-value-date hidden></div>
       <div class="portfolio-detail-price" data-portfolio-value-readout>${fmtFiat(latest)}</div>
+      ${ranged ? `
+        <div class="portfolio-detail-change ${up ? "gain" : "loss"}" data-portfolio-value-change>
+          <span>${up ? "\u2191" : "\u2193"} ${fmtFiat(Math.abs(ranged.amount))} (${Math.abs(ranged.percent).toFixed(2)}%)</span>
+          <span class="portfolio-detail-change-range">${deps.escapeHtml(rangeLabel())}</span>
+        </div>` : ""}
       ${valuePoints.length >= 2
         ? bigChartSvg(valuePoints, { height: 220, stroke: "var(--kaspa-ink)", chart: "value", lineWidth: 3 })
         : `<div class="portfolio-chart-empty">Not enough history yet — check back after a few days of activity.</div>`}
@@ -993,6 +1034,10 @@ function render() {
     <div class="kaposts-header">
       <h1 class="kaposts-title">Portfolio</h1>
       <div class="kaposts-header-actions">
+        ${selecting ? `
+          <button class="cold-inline-link" type="button" data-portfolio-select-all>${selectedTxIds.size === transactions.length && transactions.length > 0 ? "Deselect All" : "Select All"}</button>
+          <button class="cold-inline-link portfolio-select-delete" type="button" data-portfolio-delete-selected ${selectedTxIds.size === 0 ? "disabled" : ""}>Delete (${selectedTxIds.size})</button>` : ""}
+        <button class="cold-inline-link" type="button" data-portfolio-select-toggle ${!selecting && transactions.length === 0 ? "disabled" : ""}>${selecting ? "Done" : "Select"}</button>
         <button class="kaposts-icon-button" type="button" data-portfolio-refresh title="Refresh">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
         </button>
@@ -1074,13 +1119,19 @@ function wireScrubbing() {
     attachScrub(wrap, valuePoints, ([ts, v]) => {
       const date = rootEl.querySelector("[data-portfolio-value-date]");
       const readout = rootEl.querySelector("[data-portfolio-value-readout]");
+      const change = rootEl.querySelector("[data-portfolio-value-change]");
       if (date) { date.hidden = false; date.textContent = new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }); }
       if (readout) readout.textContent = fmtFiat(v);
+      // Hidden rather than removed: the range's change under a past value would read as that
+      // point's own move, and collapsing the row would shift the chart under the finger.
+      if (change) change.style.visibility = "hidden";
     }, () => {
       const date = rootEl.querySelector("[data-portfolio-value-date]");
       const readout = rootEl.querySelector("[data-portfolio-value-readout]");
+      const change = rootEl.querySelector("[data-portfolio-value-change]");
       if (date) date.hidden = true;
       if (readout) readout.textContent = fmtFiat(valuePoints.length ? valuePoints[valuePoints.length - 1][1] : 0);
+      if (change) change.style.visibility = "";
     });
   }
 }
@@ -2172,10 +2223,11 @@ export function initPortfolio(dependencies) {
     }
 
     const select = event.target.closest("[data-portfolio-select]");
-    if (select) { state.activeId = select.dataset.portfolioSelect; saveState(); render(); return; }
+    if (select) { state.activeId = select.dataset.portfolioSelect; exitSelectMode(); saveState(); render(); return; }
 
     const openSquare = event.target.closest("[data-portfolio-open]");
     if (openSquare) {
+      exitSelectMode();
       view = openSquare.dataset.portfolioOpen;
       render();
       // Each screen pulls only what it needs, and repaints when it lands. Both are best-effort:
@@ -2203,6 +2255,47 @@ export function initPortfolio(dependencies) {
     }
 
     if (event.target.closest("[data-portfolio-refresh]")) { refreshData({ force: true }); return; }
+
+    if (event.target.closest("[data-portfolio-select-toggle]")) {
+      if (selecting) exitSelectMode(); else selecting = true;
+      render();
+      return;
+    }
+    if (event.target.closest("[data-portfolio-select-all]")) {
+      const ids = [...rootEl.querySelectorAll("[data-portfolio-tx-select]")].map((el) => el.dataset.portfolioTxSelect);
+      // One button for both directions, like iOS: when everything is already picked the only
+      // thing left to want is to unpick it.
+      if (selectedTxIds.size === ids.length) selectedTxIds.clear();
+      else selectedTxIds = new Set(ids);
+      render();
+      return;
+    }
+    if (event.target.closest("[data-portfolio-delete-selected]")) {
+      const count = selectedTxIds.size;
+      if (count === 0) return;
+      if (await confirmOverlay({
+        title: `Delete ${count} transaction${count === 1 ? "" : "s"}?`,
+        message: "This can't be undone.",
+      })) {
+        const portfolio = activePortfolio();
+        portfolio.transactions = (portfolio.transactions || []).filter((t) => !selectedTxIds.has(t.id));
+        exitSelectMode();
+        saveState(); render();
+      }
+      return;
+    }
+    const txSelect = event.target.closest("[data-portfolio-tx-select]");
+    if (txSelect) {
+      const id = txSelect.dataset.portfolioTxSelect;
+      const on = !selectedTxIds.has(id);
+      if (on) selectedTxIds.add(id); else selectedTxIds.delete(id);
+      txSelect.classList.toggle("picked", on);
+      txSelect.setAttribute("aria-pressed", String(on));
+      const box = txSelect.querySelector(".portfolio-tx-check");
+      if (box) { box.classList.toggle("on", on); box.textContent = on ? "\u2713" : ""; }
+      refreshSelectionUi();
+      return;
+    }
 
     if (event.target.closest("[data-portfolio-add-menu]")) {
       actionSheetMode = "add";
