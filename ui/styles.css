@@ -6327,7 +6327,9 @@ body.session-logged-out [data-account-rename-modal] {
 
 /* Portfolio / Cold Storage / Swaps (4.0 desktop) */
 /* Robinhood-style picker cards (iOS PortfolioPickerHeader) */
-.portfolio-cards { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 8px; }
+/* The Portfolio screen is a stack of distinct cards, so each needs room to read as its own
+   thing. Everything sat a few pixels apart and ran together into one slab. */
+.portfolio-cards { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 6px; margin-bottom: 18px; }
 .portfolio-card {
   position: relative; flex: 0 0 auto; width: 150px; text-align: left;
   border: 1px solid var(--line); border-radius: 16px; padding: 12px;
@@ -6388,7 +6390,7 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-value-readout { font-size: 19px; font-weight: 800; margin: 2px 0 8px; }
 
 /* Two launcher squares (KAS price | portfolio value) on the main portfolio screen */
-.portfolio-squares { display: flex; gap: 10px; margin-bottom: 12px; }
+.portfolio-squares { display: flex; gap: 12px; margin-bottom: 18px; }
 .portfolio-square {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; text-align: left;
   border-radius: 18px; border: 1px solid var(--card-border); background: var(--surface-1);
@@ -6980,8 +6982,9 @@ body.session-logged-out [data-account-rename-modal] {
 /* Network hashrate: full width under the two squares, because it is one long series and reads
    far better wide than squeezed into a third square (iOS puts it the same way). */
 .portfolio-hashrate-card {
-  display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 14px;
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; padding: 16px 14px;
+  margin-bottom: 18px;
   border: 1px solid var(--card-border, var(--line));
   border-radius: 18px;
   background: var(--surface-1, rgba(255,255,255,.04));
@@ -6997,6 +7000,24 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-hashrate-value { font-size: 20px; font-weight: 800; }
 .portfolio-hashrate-card svg:not(.portfolio-hashrate-ico svg) { margin-left: auto; }
 .portfolio-converter { display: flex; flex-direction: column; gap: 10px; }
+/* Sub-screens stack cards too - the chart, the converter, the stats, the blurb - and they were
+   as tight as the main screen's. */
+[data-portfolio-root] > .profile-card { margin-bottom: 18px; }
+[data-portfolio-root] > .profile-card:last-child { margin-bottom: 0; }
+.portfolio-screen-header { margin-bottom: 14px; }
+.portfolio-reorder-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.portfolio-reorder-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 13px; border: 1px solid var(--card-border, var(--line)); border-radius: 12px;
+  background: var(--surface-1, rgba(255,255,255,.04));
+}
+.portfolio-reorder-name { font-size: 14px; font-weight: 650; }
+.portfolio-reorder-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
+.portfolio-reorder-buttons button {
+  width: 34px; height: 30px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-size: 14px;
+}
+.portfolio-reorder-buttons button[disabled] { opacity: .35; cursor: default; }
 
 /* Address Actions (iOS `addressActionsSheet`): titled rows, because each of these does something
    worth a sentence - and because Address Visibility lives here now instead of being an unlabelled

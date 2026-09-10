@@ -81,6 +81,9 @@ let hashrateInput = "";
 /// The converter's two fields. Only the one being TYPED IN is authoritative - the other is
 /// derived - so a rounded value can never be fed back through the rate and drift (iOS
 /// KasConverterCard keeps the same rule).
+/// The order being edited, which is NOT the live one until Done - the same reason Customize Dock
+/// edits a draft: committing on every arrow press would re-render the cards underneath the sheet.
+let reorderDraft = [];
 let converterKas = "1";
 let converterFiat = "";
 
@@ -385,7 +388,9 @@ function pickerCard(portfolio) {
         : `<div class="portfolio-card-change muted">—</div>`}
       <div class="portfolio-card-actions" data-portfolio-card-actions="${portfolio.id}" hidden>
         <button type="button" data-portfolio-rename="${portfolio.id}">Rename</button>
-        ${state.portfolios.length > 1 ? `<button type="button" class="danger" data-portfolio-delete="${portfolio.id}">Delete</button>` : ""}
+        ${state.portfolios.length > 1 ? `
+          <button type="button" data-portfolio-reorder>Reorder Portfolios</button>
+          <button type="button" class="danger" data-portfolio-delete="${portfolio.id}">Delete</button>` : ""}
       </div>
     </div>`;
 }
@@ -483,6 +488,36 @@ function squaresHtml(summary) {
         <div class="portfolio-square-value">${fmtFiat(summary.currentValue)}</div>
         <div class="portfolio-square-change ${plPos ? "gain" : "loss"}">${plPos ? "↑" : "↓"} ${Math.abs(summary.totalPLPercent).toFixed(2)}%</div>
       </button>
+    </div>`;
+}
+
+/// Reordering, offered from a card's own menu the way iOS offers it - one screen where the order
+/// is edited and committed, rather than dragging the cards themselves.
+///
+/// Dragging the cards in place would fight the tap that SELECTS a portfolio, which is the thing
+/// people do with them constantly. Moving the job into a list makes both gestures unambiguous.
+function renderReorderModal() {
+  const body = modalsEl?.querySelector("[data-portfolio-reorder-body]");
+  if (!body) return;
+  body.innerHTML = `
+    <div class="modal-header">
+      <div><p class="modal-kicker">Portfolio</p><h2>Reorder Portfolios</h2></div>
+      <button class="modal-close" type="button" data-portfolio-reorder-close aria-label="Close">×</button>
+    </div>
+    <div class="portfolio-reorder-list">
+      ${reorderDraft.map((p, i) => `
+        <div class="portfolio-reorder-row">
+          <span class="portfolio-reorder-name">${deps.escapeHtml(p.name)}</span>
+          <span class="portfolio-reorder-buttons">
+            <button type="button" data-portfolio-move="up" data-index="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move up">↑</button>
+            <button type="button" data-portfolio-move="down" data-index="${i}" ${i === reorderDraft.length - 1 ? "disabled" : ""} aria-label="Move down">↓</button>
+          </span>
+        </div>`).join("")}
+    </div>
+    <p class="field-hint">The order here is the order the cards appear in. Transactions stay where they are.</p>
+    <div class="modal-actions">
+      <button class="secondary-button" type="button" data-portfolio-reorder-close>Cancel</button>
+      <button class="primary-button" type="button" data-portfolio-reorder-save>Done</button>
     </div>`;
 }
 
@@ -1413,6 +1448,10 @@ function buildModals() {
       </div>
     </div>
 
+    <div class="modal-backdrop" data-portfolio-reorder-modal hidden>
+      <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Reorder Portfolios" data-portfolio-reorder-body></div>
+    </div>
+
     <div class="modal-backdrop" data-portfolio-import-modal hidden>
       <div class="contact-modal portfolio-editor-modal" role="dialog" aria-modal="true" aria-label="Add Kaspa Address">
         <div class="modal-header">
@@ -1442,6 +1481,33 @@ function buildModals() {
   document.body.appendChild(modalsEl);
 
   modalsEl.addEventListener("click", (event) => {
+    // --- Reorder ---
+    if (event.target.closest("[data-portfolio-reorder-close]")) {
+      modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = true;
+      return;
+    }
+    const move = event.target.closest("[data-portfolio-move]");
+    if (move) {
+      const from = Number(move.dataset.index);
+      const to = move.dataset.portfolioMove === "up" ? from - 1 : from + 1;
+      if (to < 0 || to >= reorderDraft.length) return;
+      [reorderDraft[from], reorderDraft[to]] = [reorderDraft[to], reorderDraft[from]];
+      renderReorderModal();
+      return;
+    }
+    if (event.target.closest("[data-portfolio-reorder-save]")) {
+      // Reordered by id, so a portfolio added or removed while the sheet was open cannot be
+      // dropped: anything not named in the draft keeps its place at the end.
+      const order = reorderDraft.map((p) => p.id);
+      const byId = new Map(state.portfolios.map((p) => [p.id, p]));
+      const reordered = order.map((id) => byId.get(id)).filter(Boolean);
+      for (const portfolio of state.portfolios) if (!order.includes(portfolio.id)) reordered.push(portfolio);
+      state.portfolios = reordered;
+      saveState();
+      modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = true;
+      render();
+      return;
+    }
     if (event.target.closest("[data-portfolio-editor-close]")) { closeTxEditor(); return; }
     if (event.target.closest("[data-portfolio-editor-save]")) { saveTxEditor(); return; }
     if (event.target.closest("[data-portfolio-editor-delete]")) {
@@ -1731,6 +1797,13 @@ export function initPortfolio(dependencies) {
       return;
     }
 
+    if (event.target.closest("[data-portfolio-reorder]")) {
+      closeCardMenus();
+      reorderDraft = state.portfolios.map((p) => ({ id: p.id, name: p.name }));
+      renderReorderModal();
+      modalsEl.querySelector("[data-portfolio-reorder-modal]").hidden = false;
+      return;
+    }
     const rename = event.target.closest("[data-portfolio-rename]");
     if (rename) {
       const portfolio = state.portfolios.find((p) => p.id === rename.dataset.portfolioRename);
