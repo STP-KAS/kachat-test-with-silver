@@ -756,16 +756,36 @@ function closeColdActionsSheet() {
 
 const COLD_VIS_PAGE_SIZE = 50;
 
-async function coldVisUsageFor(address, knownSompi) {
-  if (visUsageCache.has(address)) return visUsageCache.get(address);
-  let sompi = knownSompi;
-  if (sompi === undefined) {
-    try { sompi = await fetchBalance(address); } catch { sompi = 0; }
+/// Fills in a whole page's badges at once: one bulk activity call and one batched balance call
+/// for fifty addresses, instead of a balance request and a history request EACH.
+///
+/// A failed probe caches nothing. The old version swallowed the error, treated the address as
+/// having no balance and no history, and cached that - so one rate-limited request left a row
+/// reading "Unused" for the rest of the session, which is worse than saying nothing: it is the
+/// answer someone uses to decide an address is safe to hide. Unresolved rows keep the neutral "…"
+/// and are asked again the next time the page is drawn.
+async function coldVisUsageForPage(addresses, balanceByAddress) {
+  const unknown = addresses.filter((a) => !visUsageCache.has(a));
+  if (!unknown.length) return;
+
+  // Balances first: an address holding something is "used" whatever its history says.
+  const balances = new Map(unknown.map((a) => [a, balanceByAddress.get(a)]));
+  const needBalance = unknown.filter((a) => balances.get(a) === undefined);
+  if (needBalance.length) {
+    try {
+      const fetched = await fetchBalancesBatch(needBalance);
+      for (const [address, sompi] of fetched) balances.set(address, sompi);
+    } catch { /* leave them undefined - unresolved, not zero */ }
   }
-  const used = sompi > 0 ? true : await addressHasHistory(address);
-  const result = { sompi, used };
-  visUsageCache.set(address, result);
-  return result;
+
+  const activity = await fetchActiveAddresses(unknown).catch(() => null);
+  for (const address of unknown) {
+    const sompi = balances.get(address);
+    if (sompi === undefined) continue;          // balance unknown - say nothing
+    if (sompi > 0) { visUsageCache.set(address, { sompi, used: true }); continue; }
+    if (!activity) continue;                    // usage unknown - say nothing
+    visUsageCache.set(address, { sompi: 0, used: activity.has(address) });
+  }
 }
 
 function renderVisibility() {
@@ -821,27 +841,32 @@ function renderVisibility() {
       </button>
     </div>`;
 
-  // Usage fill: funded rows show their balance, the rest Used/Unused. Chunked like the
-  // discovery scan so a page can't burst the REST rate limiter.
+  // Usage fill: funded rows show their balance, the rest Used/Unused. Two requests for the whole
+  // page rather than two per address.
   const token = ++visibilityToken;
   (async () => {
-    for (let base = 0; base < addresses.length; base += 5) {
-      await Promise.all(addresses.slice(base, base + 5).map(async (address, offset) => {
-        const index = start + base + offset;
-        const usage = await coldVisUsageFor(address, balanceByIndex.get(index));
-        if (token !== visibilityToken) return;
-        const cell = rootEl?.querySelector(`[data-cold-vis-usage="${index}"]`);
-        if (!cell) return;
-        if (usage.sompi > 0) {
-          cell.textContent = `${(usage.sompi / 1e8).toFixed(4)} KAS`;
-          cell.classList.add("used");
-        } else {
-          cell.textContent = usage.used ? "Used" : "Unused";
-          cell.classList.add(usage.used ? "used" : "unused");
-        }
-      }));
-      if (token !== visibilityToken) return;
-    }
+    const balanceByAddress = new Map(addresses.map((address, i) => [address, balanceByIndex.get(start + i)]));
+    await coldVisUsageForPage(addresses, balanceByAddress);
+    if (token !== visibilityToken) return;
+    addresses.forEach((address, i) => {
+      const usage = visUsageCache.get(address);
+      // No answer means no claim: the row keeps its "…" rather than asserting "Unused".
+      if (!usage) return;
+      const cell = rootEl?.querySelector(`[data-cold-vis-usage="${start + i}"]`);
+      if (!cell) return;
+      if (usage.sompi > 0) {
+        cell.textContent = `${(usage.sompi / 1e8).toFixed(4)} KAS`;
+        cell.classList.add("used");
+      } else {
+        cell.textContent = usage.used ? "Used" : "Unused";
+        cell.classList.add(usage.used ? "used" : "unused");
+      }
+      // Funded rows cannot be hidden, so their toggle is dimmed - the same cue iOS gives, said
+      // before the tap rather than by a toast after it.
+      if (usage.sompi > 0) {
+        rootEl?.querySelector(`[data-cold-vis-row="${start + i}"] .spending-visibility-toggle`)?.classList.add("locked");
+      }
+    });
   })();
 }
 

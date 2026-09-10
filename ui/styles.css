@@ -6973,6 +6973,10 @@ body.session-logged-out [data-account-rename-modal] {
 .cold-send-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
 .cold-send-row span:first-child { color: var(--muted); }
 .cold-send-row code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+/* A funded row's toggle is dimmed: hiding one would hide money, so it is refused. iOS dims it
+   the same way, which says so before the tap rather than by a toast after it. */
+.spending-visibility-toggle.locked { opacity: .45; cursor: default; }
+
 /* Address Actions (iOS `addressActionsSheet`): titled rows, because each of these does something
    worth a sentence - and because Address Visibility lives here now instead of being an unlabelled
    glyph in the header that said nothing about what it did. */
