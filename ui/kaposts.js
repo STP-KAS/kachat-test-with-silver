@@ -28,6 +28,9 @@ import {
   submitKaPostUnquote,
   submitKaPostVote,
 } from "../engine/kaposts.js";
+// Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
+// a template literal is invisible to it - which left this 404ing on the built site.
+import kaspaLogoUrl from "./assets/kaspa-logo.png";
 
 const UNDO_DELAY_MS = 5000;
 const KAPOSTS_PREFS_KEY = "kachat-kaposts-prefs-v1"; // { following:[], muted:[], blocked:[] } — account-scoped
@@ -913,7 +916,7 @@ function postCellHtml(post, { inThread = false, isRoot = false, replyInline = fa
           </button>
           <button class="kaposts-action${post.bookmarkedByMe ? " active-bookmark" : ""}" type="button" data-kaposts-bookmark="${post.id}" title="${post.bookmarkedByMe ? "Remove Bookmark" : "Bookmark"}">${ICONS.bookmark}</button>
           ${post.remoteId ? `<button class="kaposts-action" type="button" data-kaposts-share="${post.id}" title="Copy share link">${ICONS.share}</button>` : ""}
-          ${isMine ? "" : `<button class="kaposts-action kaposts-tip" type="button" data-kaposts-tip="${post.id}" title="Send a Kaspa tip"><img class="kaposts-tip-logo" src="./ui/assets/kaspa-logo.png" alt="" aria-hidden="true" /><span>Tip</span></button>`}
+          ${isMine ? "" : `<button class="kaposts-action kaposts-tip" type="button" data-kaposts-tip="${post.id}" title="Send a Kaspa tip"><img class="kaposts-tip-logo" src="${kaspaLogoUrl}" alt="" aria-hidden="true" /><span>Tip</span></button>`}
         </div>
         ${!inThread && isThreadRootPost(post) ? `<button class="kaposts-view-thread" type="button" data-kaposts-open="${post.id}">⤷ View thread</button>` : ""}
       </div>
@@ -1385,7 +1388,7 @@ function spawnKaspaLogoBurst(anchor) {
   const count = 7;
   for (let i = 0; i < count; i += 1) {
     const particle = document.createElement("img");
-    particle.src = "./ui/assets/kaspa-logo.png";
+    particle.src = kaspaLogoUrl;
     particle.alt = "";
     particle.className = "kaposts-logo-particle";
     const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;

@@ -4069,7 +4069,8 @@ body.session-logged-out [data-account-rename-modal] {
 
 /* Paste and Scan QR: iOS spreads them across the row with an icon each, rather than leaving two
    bare links huddled at one end. */
-.cold-send-recipient-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cold-send-recipient-status:empty { display: none; }
+.cold-send-recipient-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: -4px; padding: 0 2px; }
 .cold-send-recipient-actions .cold-inline-link { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; }
 .cold-send-recipient-actions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 /* The unit toggle is the ONLY way to switch between KAS and fiat, so it has to look like the

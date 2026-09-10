@@ -19,6 +19,12 @@ import {
   compoundInputs, unsignedToKsptBytes, broadcastSigned, isValidKaspaAddress,
   fetchSpendableUtxos, utxoKey,
 } from "./kspt.js";
+// Asset URLs must be IMPORTED, not written as paths in a string. Vite rewrites and hashes the
+// assets it can see - the ones in index.html and the stylesheet - but a path inside a template
+// literal is just text to it, so `./ui/assets/kaspa-logo.png` was never emitted into the build at
+// all and 404'd on the built site (a broken-image icon where the KAS mark should be). Importing
+// it makes the bundler responsible for both copying the file and pointing at it.
+import kaspaLogoUrl from "./assets/kaspa-logo.png";
 import { closeActiveScanner, scanKaspaAddress, scanQrCode } from "./qr-scan.js";
 import { listPortfolios, addTransactionToPortfolio } from "./portfolio.js";
 
@@ -1467,7 +1473,7 @@ function renderSendFlow() {
                placeholder="kaspa:qr... or name.kas" autocomplete="off" spellcheck="false"
                value="${deps.escapeHtml(send.toInput)}" />
            </label>
-           <div data-cold-send-recipient-status>${sendRecipientStatusHtml()}</div>
+           <div class="cold-send-recipient-status" data-cold-send-recipient-status>${sendRecipientStatusHtml()}</div>
            <div class="cold-send-recipient-actions">
              <button class="cold-inline-link" type="button" data-cold-send-paste>${CLIPBOARD_ICON}Paste</button>
              <button class="cold-inline-link" type="button" data-cold-send-scan>${SCAN_ICON}Scan QR</button>
@@ -1475,7 +1481,7 @@ function renderSendFlow() {
       <span class="field-label">Amount</span>
       <div class="send-amount-field">
         <button type="button" class="send-amount-unit" data-cold-send-unit title="Tap to switch between KAS and fiat">
-          <img src="./ui/assets/kaspa-logo.png" alt="" class="send-amount-logo" ${send.amountUnit === "kas" ? "" : "hidden"} />
+          <img src="${kaspaLogoUrl}" alt="" class="send-amount-logo" ${send.amountUnit === "kas" ? "" : "hidden"} />
           <span class="send-amount-fiat-symbol" ${send.amountUnit === "fiat" ? "" : "hidden"}>${deps.escapeHtml(deps.currencySymbol?.() || "$")}</span>
           <span class="send-amount-unit-code">${send.amountUnit === "kas" ? "KAS" : deps.currencyCode?.() || "USD"}</span>
         </button>

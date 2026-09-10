@@ -37,6 +37,11 @@ import { KNSProfileLinkBuilder } from "../engine/kns.js";
 import { getEndpoint, getEndpointOverride, setEndpoint, resetEndpoints, ENDPOINT_DEFAULTS } from "../engine/endpoints.js";
 import * as Chess from "../engine/chess.js";
 import { registrationAmounts as knsRegistrationAmounts, PROFILE_FIELD_EDIT_ORDER as KNS_PROFILE_FIELD_EDIT_ORDER } from "../engine/kns-write.js";
+// Imported, not written as string paths: Vite only rewrites and emits the assets it can SEE, and
+// a path inside a string is invisible to it - so these 404'd on the built site (a broken-image
+// icon in the notification and on the KAS mark).
+import kaspaLogoUrl from "./assets/kaspa-logo.png";
+import kachatLogoUrl from "./assets/kachat-logo.png";
 
 // Step 25 shell:
 // - Keeps KaspaEngine modules intact.
@@ -1535,7 +1540,7 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
     const note = new Notification(title, {
       body: displayTextForMessage(message) || "New message",
       tag: `kachat-${conversationEntry.id}`,
-      icon: "./ui/assets/kachat-logo.png",
+      icon: kachatLogoUrl,
       silent: (accountShellPrefs.notificationSound ?? true) === false,
     });
     note.onclick = () => { try { window.focus(); } catch {} setActiveAppTab("chats"); openConversation(conversationEntry.id); note.close(); };
@@ -1554,7 +1559,7 @@ function postDesktopNotification({ title, body, tag, onClick } = {}) {
     const note = new Notification(title || "KaChat", {
       body: body || "",
       tag: tag || undefined,
-      icon: "./ui/assets/kachat-logo.png",
+      icon: kachatLogoUrl,
       silent: (accountShellPrefs.notificationSound ?? true) === false,
     });
     note.onclick = () => {
@@ -12162,7 +12167,7 @@ function buildPaymentCard(parts, outgoing) {
   logoWrap.className = "payment-card-logo";
   logoWrap.setAttribute("aria-hidden", "true");
   const logo = document.createElement("img");
-  logo.src = "./ui/assets/kaspa-logo.png";
+  logo.src = kaspaLogoUrl;
   logo.alt = "";
   logoWrap.append(logo);
   const body = document.createElement("div");

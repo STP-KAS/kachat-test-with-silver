@@ -21,6 +21,9 @@ import { getEndpoint } from "../engine/endpoints.js";
 import { validateMainnetAddress } from "../engine/utils.js";
 import { looksLikeDomain, resolveDomain } from "../engine/kns.js";
 import { closeActiveScanner, scanKaspaAddress } from "./qr-scan.js";
+// Imported, not a string path: Vite only rewrites and emits assets it can SEE, and a path inside
+// a template literal is invisible to it - which left this 404ing on the built site.
+import kaspaLogoUrl from "./assets/kaspa-logo.png";
 
 const PORTFOLIO_KEY = "kachat-portfolios-v1"; // account-scoped: { activeId, portfolios: [{id, name, transactions: [...] }] }
 const MAX_PORTFOLIOS = 5;
@@ -452,7 +455,7 @@ function squaresHtml(summary) {
     <div class="portfolio-squares">
       <button class="portfolio-square" type="button" data-portfolio-open="price">
         <div class="portfolio-square-head">
-          <img src="./ui/assets/kaspa-logo.png" alt="" class="portfolio-square-logo"/>
+          <img src="${kaspaLogoUrl}" alt="" class="portfolio-square-logo"/>
           <span class="portfolio-square-title">Kaspa</span>
           <span class="portfolio-square-chev">›</span>
         </div>
@@ -481,7 +484,7 @@ function priceViewHtml() {
     </div>
     <div class="profile-card">
       <div class="portfolio-detail-head">
-        <img src="./ui/assets/kaspa-logo.png" alt="" class="portfolio-detail-logo"/>
+        <img src="${kaspaLogoUrl}" alt="" class="portfolio-detail-logo"/>
         <span class="portfolio-detail-name">Kaspa</span>
       </div>
       <div class="portfolio-detail-date" data-portfolio-price-date hidden></div>
