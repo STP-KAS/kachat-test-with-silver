@@ -306,7 +306,11 @@ button { cursor: pointer; }
 .new-chat-fab {
   position: absolute;
   right: 20px;
-  bottom: calc(var(--dock-inset) + 20px);
+  /* Down on the dock's shoulder rather than floating in the middle of the list. The dock's pill is
+     92px tall sitting 18px off the bottom, so its top edge is at 110px - this leaves 8px of air
+     above it. Going fully level with the dock is a wider-window thing; see the min-width rule
+     below for why. */
+  bottom: 118px;
   z-index: 500;
   width: 58px;
   height: 58px;
@@ -322,6 +326,15 @@ button { cursor: pointer; }
 
 .new-chat-fab:hover { filter: brightness(1.05); }
 .new-chat-fab .person-plus-icon { width: 27px; height: 27px; }
+
+/* Level with the dock, centred on the pill: 18px off the bottom plus half the 92-58 difference.
+   Only past 1440px, because the dock is centred in the WINDOW while this button is pinned to the
+   right edge of the sidebar, and below that width the two occupy the same horizontal band - the
+   sidebar is 34% of the window, so its right edge only clears the pill's left edge at ~1431px.
+   Level any earlier and the button would sit on top of the dock, covering the tabs. */
+@media (min-width: 1440px) {
+  .new-chat-fab { bottom: 35px; }
+}
 
 /* Narrow fallback: below 860px, only one of sidebar/detail is visible at a time,
    matching the app's previous single-column mobile behavior. `.detail-active`
@@ -8694,4 +8707,7 @@ body.session-logged-out [data-account-rename-modal] {
   /* Reserve the dock's height so nothing sits underneath it - except the chats list, which is
      meant to run under it (see .app-sidebar). */
   :root { --dock-inset: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  /* Here the dock is a full-width bar, not a pill off to one side, so the button stays above it -
+     level would mean sitting on top of two tabs. */
+  .new-chat-fab { bottom: calc(var(--dock-inset) + 16px); }
 }
