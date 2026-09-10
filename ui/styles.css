@@ -6960,6 +6960,10 @@ body.session-logged-out [data-account-rename-modal] {
    glyph in the header that said nothing about what it did. */
 .cold-summary-actions { width: 100%; margin-top: 4px; }
 .cold-actions-modal { max-width: 460px; }
+/* The address sheet puts the address itself in the kicker, and the kicker is uppercased - which
+   turns a bech32 address into shouting. Case matters in an address people compare by eye. */
+.cold-actions-modal .modal-kicker { text-transform: none; letter-spacing: .02em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.cold-actions-modal .modal-kicker.plain { font-family: inherit; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
 .cold-action-rows { display: flex; flex-direction: column; gap: 8px; }
 .cold-action-row {
   display: flex; align-items: center; gap: 12px;
@@ -6972,6 +6976,10 @@ body.session-logged-out [data-account-rename-modal] {
   text-align: left;
 }
 .cold-action-row:hover:not([disabled]) { border-color: rgba(98,244,208,.35); }
+/* Hide Address is tinted, matching the tint iOS and Android give it: not destructive, but it
+   takes something off the list. */
+.cold-action-row-warn .cold-action-icon,
+.cold-action-row-warn .cold-action-copy strong { color: #f5a623; }
 .cold-action-row[disabled] { opacity: .5; cursor: default; }
 .cold-action-icon { display: grid; place-items: center; flex: 0 0 auto; color: var(--kaspa-ink); }
 .cold-action-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

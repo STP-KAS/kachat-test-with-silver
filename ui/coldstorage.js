@@ -302,7 +302,7 @@ function render() {
   else if (activeAccountId) renderDetail();
   else renderList();
   // The Address Actions sheet shows the discover's progress, so it redraws with the screen.
-  if (!modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden) renderColdActionsSheet();
+  if (!modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden) renderColdSheet();
 }
 
 function renderList() {
@@ -326,12 +326,7 @@ function renderList() {
               </span>
             </button>
             <div class="spending-address-row-menu-wrap cold-menu-wrap">
-              <button type="button" class="spending-row-menu-btn" data-cold-menu-toggle="${account.id}" aria-haspopup="true" aria-expanded="false" aria-label="Account options">${DOTS_ICON}</button>
-              <div class="spending-row-menu" data-cold-menu="${account.id}" role="menu" hidden>
-                <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="copy" data-id="${account.id}">${COPY_ICON}Copy kpub</button>
-                <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="qr" data-id="${account.id}">${QR_ICON}Show kpub QR</button>
-                <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-account-action="rename" data-id="${account.id}">${PENCIL_ICON}Rename</button>
-              </div>
+              <button type="button" class="spending-row-menu-btn" data-cold-menu-toggle="${account.id}" aria-haspopup="dialog" aria-label="Account options">${DOTS_ICON}</button>
             </div>
           </div>`).join("")}
     <div class="cold-bottom-actions">
@@ -355,18 +350,6 @@ function addressRowHtml(account, entry) {
       ? '<span class="spending-address-usage used" data-cold-usage-cell="' + entry.index + '">Used</span>'
       : '<span class="spending-address-usage unused" data-cold-usage-cell="' + entry.index + '">Unused</span>';
   const balanceText = entry.balanceSompi === undefined ? "… KAS" : `${fmtKasExact(entry.balanceSompi)} KAS`;
-  // Hide is here as well as in the Address Visibility checklist, the way iOS has it: getting one
-  // address off the list should not mean opening a screen built for going through all of them.
-  // Same guard as the checklist, and as iOS: never a FUNDED address, because hiding one hides
-  // money.
-  const menuItems = [
-    `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="rename" data-index="${entry.index}">${PENCIL_ICON}Rename Address</button>`,
-    `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="copy" data-index="${entry.index}">${COPY_ICON}Copy Address</button>`,
-    `<button type="button" role="menuitem" class="spending-row-menu-item" data-cold-addr-action="qr" data-index="${entry.index}">${QR_ICON}Show QR Code</button>`,
-    ...((entry.balanceSompi || 0) === 0
-      ? [`<button type="button" role="menuitem" class="spending-row-menu-item cold-menu-item-warn" data-cold-addr-action="hide" data-index="${entry.index}">${EYE_SLASH_ICON}Hide Address</button>`]
-      : []),
-  ];
   return `
     <div class="spending-address-row cold-address-row" data-cold-address-row="${entry.index}">
       <button type="button" class="spending-address-row-main" data-cold-addr-open="${entry.index}" aria-label="Open address #${entry.index} on explorer">
@@ -380,8 +363,7 @@ function addressRowHtml(account, entry) {
         <span class="spending-address-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
       </button>
       <div class="spending-address-row-menu-wrap">
-        <button type="button" class="spending-row-menu-btn" data-cold-addr-menu-toggle="${entry.index}" aria-haspopup="true" aria-expanded="false" aria-label="Address options">${DOTS_ICON}</button>
-        <div class="spending-row-menu" data-cold-addr-menu="${entry.index}" role="menu" hidden>${menuItems.filter(Boolean).join("")}</div>
+        <button type="button" class="spending-row-menu-btn" data-cold-addr-menu-toggle="${entry.index}" aria-haspopup="dialog" aria-label="Address options">${DOTS_ICON}</button>
       </div>
     </div>`;
 }
@@ -455,21 +437,83 @@ function renderDetail() {
 /// Discovery reports into the sheet rather than dismissing it, and the scan belongs to the SCREEN,
 /// not to the sheet - closing it does not stop the scan, which is what "Close and Keep Scanning"
 /// says.
-function renderColdActionsSheet() {
-  const body = modalsEl?.querySelector("[data-cold-actions-body]");
-  if (!body) return;
-  const discovering = detailBusy === "discover";
-  const row = (action, title, subtitle, icon, disabled = false) => `
-    <button type="button" class="cold-action-row" data-cold-${action} ${disabled ? "disabled" : ""}>
+/// Which sheet is open: `{ kind: "actions" | "account" | "address", id?, index? }`, or null.
+/// Held so `render()` can redraw the open sheet without clobbering a different one.
+let coldSheet = null;
+
+function coldSheetRow({ attr, title, subtitle, icon, warn = false, disabled = false }) {
+  return `
+    <button type="button" class="cold-action-row${warn ? " cold-action-row-warn" : ""}" ${attr} ${disabled ? "disabled" : ""}>
       <span class="cold-action-icon" aria-hidden="true">${icon}</span>
       <span class="cold-action-copy">
         <strong>${title}</strong>
         <small>${subtitle}</small>
       </span>
     </button>`;
+}
+
+function renderColdSheet() {
+  if (!coldSheet) return;
+  if (coldSheet.kind === "account") return renderColdAccountSheet();
+  if (coldSheet.kind === "address") return renderColdAddressSheet();
+  renderColdActionsSheet();
+}
+
+/// The account row's ⋯ (iOS `ColdStorageAccountActionsSheet`).
+function renderColdAccountSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  const account = accounts.find((a) => a.id === coldSheet.id);
+  if (!body || !account) return;
   body.innerHTML = `
     <div class="modal-head">
-      <div><p class="modal-kicker">Cold Storage</p><h2>Address Actions</h2></div>
+      <div><p class="modal-kicker plain">Cold Storage</p><h2>${deps.escapeHtml(account.label)}</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    <div class="cold-action-rows">
+      ${coldSheetRow({ attr: `data-cold-account-action="copy" data-id="${account.id}"`, title: "Copy kpub",
+        subtitle: "Puts the extended public key on the clipboard.", icon: COPY_ICON })}
+      ${coldSheetRow({ attr: `data-cold-account-action="qr" data-id="${account.id}"`, title: "Show kpub QR",
+        subtitle: "Scan it into another device to watch this account there.", icon: QR_ICON })}
+      ${coldSheetRow({ attr: `data-cold-account-action="rename" data-id="${account.id}"`, title: "Rename",
+        subtitle: "Changes the name shown for this account.", icon: PENCIL_ICON })}
+    </div>`;
+}
+
+/// One address row's ⋯ (iOS `addressActionsSheet` for an entry).
+function renderColdAddressSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  const account = activeAccount();
+  const entry = detailEntries.find((e) => e.index === coldSheet.index);
+  if (!body || !account || !entry) return;
+  const i = entry.index;
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker">${deps.escapeHtml(shortColdAddress(entry.address))}</p><h2>${deps.escapeHtml(displayLabelFor(account, i))}</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    <div class="cold-action-rows">
+      ${coldSheetRow({ attr: `data-cold-addr-action="rename" data-index="${i}"`, title: "Rename Address",
+        subtitle: "Gives this address a label of your own.", icon: PENCIL_ICON })}
+      ${coldSheetRow({ attr: `data-cold-addr-action="copy" data-index="${i}"`, title: "Copy Address",
+        subtitle: "Puts the full address on the clipboard.", icon: COPY_ICON })}
+      ${coldSheetRow({ attr: `data-cold-addr-action="qr" data-index="${i}"`, title: "Show QR Code",
+        subtitle: "Full screen, for scanning with another device.", icon: QR_ICON })}
+      ${(entry.balanceSompi || 0) === 0
+        ? coldSheetRow({ attr: `data-cold-addr-action="hide" data-index="${i}"`, title: "Hide Address",
+            subtitle: "Removes it from this list. Re-enable it in Address Visibility.", icon: EYE_SLASH_ICON, warn: true })
+        : ""}
+    </div>`;
+}
+
+function renderColdActionsSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  if (!body) return;
+  const discovering = detailBusy === "discover";
+  const row = (action, title, subtitle, icon, disabled = false) =>
+    coldSheetRow({ attr: `data-cold-${action}`, title, subtitle, icon, disabled });
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker plain">Cold Storage</p><h2>Address Actions</h2></div>
       <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
     </div>
     ${discovering
@@ -492,16 +536,20 @@ function renderColdActionsSheet() {
          ${detailDiscoverySummary ? `<p class="field-hint cold-actions-summary">${deps.escapeHtml(detailDiscoverySummary)}</p>` : ""}`}`;
 }
 
-function openColdActionsSheet() {
+function openColdSheet(spec) {
   const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
   if (!modal) return;
-  renderColdActionsSheet();
+  coldSheet = spec;
+  renderColdSheet();
   modal.hidden = false;
 }
+
+function openColdActionsSheet() { openColdSheet({ kind: "actions" }); }
 
 function closeColdActionsSheet() {
   const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
   if (modal) modal.hidden = true;
+  coldSheet = null;
 }
 
 // --- Address Visibility checklist (port of the spending-chain screen): a paged list of
@@ -1635,6 +1683,18 @@ function buildModals() {
     if (event.target.closest("[data-cold-actions-close]")) { closeColdActionsSheet(); return; }
     // The rows themselves are handled by the root delegate, which the modal is NOT inside - it
     // lives in modalsEl, on document.body - so forward them.
+    const accountAction = event.target.closest("[data-cold-account-action]");
+    if (accountAction) {
+      closeColdActionsSheet();
+      handleAccountMenuAction(accountAction.dataset.coldAccountAction, accountAction.dataset.id);
+      return;
+    }
+    const addrAction = event.target.closest("[data-cold-addr-action]");
+    if (addrAction) {
+      closeColdActionsSheet();
+      handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
+      return;
+    }
     const action = event.target.closest("[data-cold-generate], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility]");
     if (!action || action.disabled) return;
     if (action.matches("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); }
@@ -2474,21 +2534,9 @@ export function initColdStorage(dependencies) {
   rootEl?.addEventListener("click", async (event) => {
     // --- shared menu toggles (account rows, address rows, Address Actions) ---
     const accountToggle = event.target.closest("[data-cold-menu-toggle]");
-    if (accountToggle) {
-      const menu = rootEl.querySelector(`[data-cold-menu="${accountToggle.dataset.coldMenuToggle}"]`);
-      const willOpen = menu && menu.hidden;
-      closeAllColdMenus();
-      if (menu && willOpen) { menu.hidden = false; accountToggle.setAttribute("aria-expanded", "true"); }
-      return;
-    }
+    if (accountToggle) { openColdSheet({ kind: "account", id: accountToggle.dataset.coldMenuToggle }); return; }
     const addrToggle = event.target.closest("[data-cold-addr-menu-toggle]");
-    if (addrToggle) {
-      const menu = rootEl.querySelector(`[data-cold-addr-menu="${addrToggle.dataset.coldAddrMenuToggle}"]`);
-      const willOpen = menu && menu.hidden;
-      closeAllColdMenus();
-      if (menu && willOpen) { menu.hidden = false; addrToggle.setAttribute("aria-expanded", "true"); }
-      return;
-    }
+    if (addrToggle) { openColdSheet({ kind: "address", index: Number(addrToggle.dataset.coldAddrMenuToggle) }); return; }
     if (event.target.closest("[data-cold-actions-toggle]")) { openColdActionsSheet(); return; }
 
     // --- menu items ---
