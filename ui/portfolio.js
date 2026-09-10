@@ -682,6 +682,44 @@ function typedHashrateHs() {
   return amount * (HASHRATE_UNITS.find((u) => u.key === hashrateUnit)?.scale ?? 1e12);
 }
 
+/// One payout period: what it pays in KAS, with the fiat value beneath it (iOS `payoutRow`).
+///
+/// Stacked rather than side by side because the two numbers answer the same question in two
+/// currencies - putting them in separate columns invites reading them as separate figures.
+function payoutRowHtml(label, kas) {
+  const fiat = price && price.price > 0 ? fmtFiat(kas * price.price) : "";
+  return `
+    <div class="portfolio-payout-row">
+      <span class="portfolio-payout-label">${label}</span>
+      <span class="portfolio-payout-values">
+        <span class="portfolio-payout-kas">${fmtKas(kas)}</span>
+        ${fiat ? `<span class="portfolio-payout-fiat">${fiat}</span>` : ""}
+      </span>
+    </div>`;
+}
+
+/// Day, week and month, from the one daily figure (iOS's three `payoutRow` calls).
+///
+/// A day is the unit the arithmetic produces, but nobody buys a rig to earn a day's worth. The
+/// week and month are the horizons people actually compare against an electricity bill, and
+/// making the reader do the multiplication is the kind of small friction that stops them looking.
+function payoutBlockHtml(daily) {
+  if (daily === null) {
+    return `<p class="field-hint">Enter your hashrate to estimate earnings.</p>`;
+  }
+  const stats = peekNetworkStats();
+  // 30 days, not a calendar month: the reward steps down monthly anyway, so precision past
+  // "about a month" would be false. iOS makes the same call for the same reason.
+  return `
+    <div class="portfolio-payout-rows">
+      ${payoutRowHtml("Per day", daily)}
+      ${payoutRowHtml("Per week", daily * 7)}
+      ${payoutRowHtml("Per month", daily * 30)}
+    </div>
+    <p class="field-hint">Your share of the network times what the network pays out in a day, at the current reward.</p>
+    ${stats?.blockRewardKas ? `<p class="field-hint">At ${formatHashrate(stats.currentHashrate)} network hashrate and a ${stats.blockRewardKas.toFixed(4)} KAS block reward. Before pool fees, power and luck, and both figures move.</p>` : ""}`;
+}
+
 /// One stat: label on the left, value on the right, with a divider between rows (iOS `statRow`).
 /// A two-column grid squeezed four figures into two lines and left the reader matching labels to
 /// values by position.
@@ -767,7 +805,7 @@ function hashrateCardHtml() {
   return `
     <button class="portfolio-hashrate-card" type="button" data-portfolio-open="hashrate">
       <span class="portfolio-hashrate-ico" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11.5 5.5 4 13v7h7l7.5-7.5"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M6.37 17.9C1.86 11.11 12.89 1.86 18.78 7.48"/><path d="M8.3 7.59 17.21 18.2"/></svg>
       </span>
       <span class="portfolio-hashrate-copy">
         <span class="portfolio-hashrate-label">Network Hashrate</span>
@@ -795,7 +833,7 @@ function hashrateViewHtml() {
     <div class="profile-card">
       <div class="portfolio-detail-head">
         <span class="portfolio-hashrate-ico" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M14 3l7 7-3 3-7-7z"/><path d="M11.5 5.5 4 13v7h7l7.5-7.5"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M6.37 17.9C1.86 11.11 12.89 1.86 18.78 7.48"/><path d="M8.3 7.59 17.21 18.2"/></svg>
         </span>
         <span class="portfolio-detail-name">Network Hashrate</span>
       </div>
@@ -829,9 +867,7 @@ function hashrateViewHtml() {
             <button type="button" class="settings-segmented-option ${hashrateUnit === unit.key ? "active" : ""}" data-portfolio-hashrate-unit="${unit.key}">${unit.label}</button>`).join("")}
         </div>
       </div>
-      ${statRowHtml("Estimated daily", daily === null ? "—" : fmtKas(daily))}
-      ${statRowHtml("At today's price", daily === null || !price ? "—" : fmtFiat(daily * price.price))}
-      <p class="field-hint">Your share of the network times what the network pays out in a day, at the current reward. It ignores luck, pool fees and orphaned blocks, so treat it as a ceiling rather than a forecast.</p>
+      <div data-portfolio-payouts>${payoutBlockHtml(daily)}</div>
     </div>
 
     <div class="profile-card portfolio-about">
@@ -2058,13 +2094,10 @@ export function initPortfolio(dependencies) {
         networkHashrateHs: stats?.currentHashrate,
         blockRewardKas: stats?.blockRewardKas,
       });
-      const cellFor = (label) => [...rootEl.querySelectorAll(".portfolio-stat-row")]
-        .find((row) => row.querySelector(".portfolio-stat-label")?.textContent === label)
-        ?.querySelector(".portfolio-stat-value");
-      const dailyCell = cellFor("Estimated daily");
-      const fiatCell = cellFor("At today's price");
-      if (dailyCell) dailyCell.textContent = daily === null ? "—" : fmtKas(daily);
-      if (fiatCell) fiatCell.textContent = daily === null || !price ? "—" : fmtFiat(daily * price.price);
+      // The block is replaced wholesale rather than patched cell by cell: an empty field shows a
+      // prompt where the three rows would be, so there is not always a cell to write into.
+      const block = rootEl.querySelector("[data-portfolio-payouts]");
+      if (block) block.innerHTML = payoutBlockHtml(daily);
     }
   });
 

@@ -7013,6 +7013,15 @@ body.session-logged-out [data-account-rename-modal] {
 .portfolio-stat-row + .portfolio-stat-row { border-top: 1px solid var(--line); }
 .portfolio-stat-row .portfolio-stat-label { font-size: 13px; color: var(--muted); }
 .portfolio-stat-row .portfolio-stat-value { font-size: 15px; font-weight: 700; text-align: right; }
+/* Mining payouts: the period on the left, KAS over its fiat value on the right. Stacked so the
+   two numbers read as one answer in two currencies rather than as two separate figures. */
+.portfolio-payout-rows { margin-top: 4px; }
+.portfolio-payout-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.portfolio-payout-row + .portfolio-payout-row { border-top: 1px solid var(--line); }
+.portfolio-payout-label { font-size: 13px; color: var(--muted); padding-top: 1px; }
+.portfolio-payout-values { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.portfolio-payout-kas { font-size: 15px; font-weight: 700; }
+.portfolio-payout-fiat { font-size: 12px; color: var(--muted); }
 .portfolio-hashrate-entry { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .portfolio-hashrate-entry .portfolio-editor-field { flex: 1 1 160px; }
 .portfolio-hashrate-entry .settings-segmented { flex: 0 0 auto; }
