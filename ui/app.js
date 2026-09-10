@@ -6507,7 +6507,7 @@ const DOCK_DEFAULT_ORDER = ["cold-storage", "portfolio", "chats", "hub", "profil
 const DOCK_DEFAULT = ["cold-storage", "portfolio", "chats", "hub", "profile"];
 const HUB_DEFAULT = ["kaposts", "broadcasts", "swaps", "apps"];
 /** Full names, used in the Hub grid and Customize Dock where a dock label is too short. */
-const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap", "cold-storage": "Cold Storage" };
+const TAB_FULL_NAMES = { apps: "Kaspa Websites", swaps: "ChangeNOW Swap" };
 
 function tabFullName(tab) {
   if (TAB_FULL_NAMES[tab]) return TAB_FULL_NAMES[tab];
