@@ -3,7 +3,7 @@ import { createGroupManager } from "../engine/group-store.js";
 import { initKaPosts, refreshKaPostsFeed, resetKaPostsForAccount, openKaPostFromNotification } from "./kaposts.js";
 import { initBroadcasts, refreshBroadcasts, resetBroadcastsForAccount, stopBroadcastPolling, openBroadcastChannelFromNotification } from "./broadcasts.js";
 import { initPortfolio, refreshPortfolio, resetPortfolioForAccount } from "./portfolio.js";
-import { initColdStorage, refreshColdStorage, resetColdStorageForAccount, listColdWatchedAddresses } from "./coldstorage.js";
+import { initColdStorage, refreshColdStorage, resetColdStorageForAccount, listColdWatchedAddresses, openColdAccountForAddress } from "./coldstorage.js";
 import { scanKaspaAddress } from "./qr-scan.js";
 import { initNextcloud, resetNextcloudForAccount, isNextcloudMediaSendActive, uploadNextcloudMedia, isNextcloudConnected, syncNextcloudContacts } from "./nextcloud.js";
 import { initSwaps, refreshSwaps, resetSwapsForAccount } from "./swaps.js";
@@ -1519,6 +1519,24 @@ ensureNotificationPermission();
 
 // Browser notifications for incoming messages. Best-effort: requests permission on
 // a user gesture; fires only when the message's chat isn't the focused active one.
+/// Ask for browser notification permission once per account load, when a notification feature is
+/// switched on and the browser has not been asked yet.
+///
+/// Both notification prefs default to ON, and permission was only ever requested when a toggle was
+/// FLIPPED - so a reader who leaves the defaults alone was never asked at all. The feature then
+/// looks broken rather than off: `postDesktopNotification` falls back to an in-app toast, which
+/// on a window you are not looking at is the same as nothing. That is the shape of "desktop does
+/// not notify me when cold storage receives Kaspa".
+///
+/// `default` only. A reader who has already said no is not asked again.
+function requestNotificationPermissionIfNeeded() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+  const wantsNotifications = (accountShellPrefs.chatNotifications ?? true) !== false
+    || (accountShellPrefs.addressActivityNotifications ?? true) !== false;
+  if (!wantsNotifications) return;
+  ensureNotificationPermission().catch(() => { /* asking is best-effort */ });
+}
+
 async function ensureNotificationPermission() {
   if (typeof Notification === "undefined") return false;
   if (Notification.permission === "granted") return true;
@@ -4306,7 +4324,19 @@ async function attributeAndNotifyAddressActivity(increases) {
           title: `Received ${formatSompiForNotification(toAddress)} KAS`,
           body: describeActivityAddress(kind, address),
           tag: `kachat-addr-activity-${txid}`,
-          onClick: () => {},
+          // Clicking used to focus the window and stop there, which tells you a payment arrived
+          // and then makes you go and find it. It now opens the place the money landed: the Cold
+          // Storage account that owns the address, or Manage Addresses for a spending one.
+          onClick: () => {
+            try {
+              if (String(kind || "").startsWith("cold:")) {
+                setActiveAppTab("cold-storage");
+                openColdAccountForAddress(address);
+              } else {
+                setActiveAppTab("profile");
+              }
+            } catch { /* the focus alone is still better than nothing */ }
+          },
         });
         // Also record it in the global notifications bell (Profile), alongside KaPosts/mentions.
         recordGlobalNotification({
@@ -14933,6 +14963,7 @@ async function finalizeNewAccount({ name, phrase, passphrase, wordCount }) {
   // belongs to a different account entirely - being dropped into Profile (or Cold Storage) on
   // an account that has neither a profile nor any funds yet is nobody's idea of where to start.
   setActiveAppTab("chats");
+  requestNotificationPermissionIfNeeded();
   currentBalanceKas = "--";
   updateWalletUi();
   updateServiceSummary();
@@ -15909,6 +15940,7 @@ async function importAndEnterAccount({ name, recoveryPhrase, passphrase = "", fa
   hideLoggedOutScreen();
   // As with create: an imported account starts on its chats, not on the last account's tab.
   setActiveAppTab("chats");
+  requestNotificationPermissionIfNeeded();
   currentBalanceKas = "--";
   updateWalletUi();
   updateServiceSummary();
@@ -16420,6 +16452,9 @@ if (localStorage.getItem(SESSION_LOGGED_OUT_KEY) === "true" || !hasSavedAccounts
   hideLoggedOutScreen();
   renderChats();
   restoreLastAppTab();
+  // Asked once the account is actually in, so the prompt has context rather than greeting a
+  // signed-out landing screen.
+  requestNotificationPermissionIfNeeded();
 }
 updateWalletUi();
 updateServiceSummary();

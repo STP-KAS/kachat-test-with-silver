@@ -2591,6 +2591,24 @@ async function removeActiveAccount() {
 // persisted state directly so it works even before the Cold Storage tab has
 // been opened. Cached by account fingerprint (kpub derivation isn't free).
 const coldWatchedCache = { fingerprint: "", list: [] };
+/// Opens the Cold Storage account that owns `address`, for a notification click to land
+/// somewhere useful. Returns false when no account owns it, so the caller can fall back.
+export function openColdAccountForAddress(address) {
+  if (!deps) return false;
+  loadState();
+  const target = String(address || "").trim();
+  if (!target) return false;
+  for (const account of accounts) {
+    try {
+      const derived = deriveReceiveAddresses(account.kpub, 0, account.maxIndex + 1);
+      if (!derived.includes(target)) continue;
+      openAccount(account.id);
+      return true;
+    } catch { /* a bad kpub owns nothing */ }
+  }
+  return false;
+}
+
 export function listColdWatchedAddresses() {
   if (!deps) return [];
   loadState();
