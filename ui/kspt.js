@@ -538,6 +538,16 @@ export async function estimateMaxAmount({ engine, fromAddress, feeRateOverride =
     const freshByKey = new Map(spendable.map((u) => [utxoKey(u), u]));
     utxosToUse = manualUtxoKeys.map((k) => freshByKey.get(k)).filter(Boolean);
     if (!utxosToUse.length) return 0n;
+  } else {
+    // Only as much as ONE transaction can actually spend. Automatic selection takes UTXOs
+    // largest-first and stops when the amount is covered, so the most a single send can move is
+    // the largest KSPT_MAX_INPUTS of them. Summing all of them, which is what this used to do,
+    // offered a Max that could not be built: the build needs every UTXO to reach it, hits the
+    // input cap, and refuses - and the reader only finds that out after pressing Build. Compound
+    // is the way to spend the rest, and it is a press away in the same menu.
+    utxosToUse = [...spendable]
+      .sort((a, b) => (a.amountSompi > b.amountSompi ? -1 : a.amountSompi < b.amountSompi ? 1 : 0))
+      .slice(0, KSPT_MAX_INPUTS);
   }
 
   const totalBalance = utxosToUse.reduce((sum, u) => sum + u.amountSompi, 0n);
