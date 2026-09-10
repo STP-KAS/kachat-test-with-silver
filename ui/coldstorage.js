@@ -53,6 +53,8 @@ let addrToken = 0;
 // Addresses of the open account that own at least one KNS domain (cached
 // engine lookups) — drives the "Contains domain" row tag and list ordering.
 let detailDomainOwning = new Set();
+/// What the last discover on this account turned up, shown in the Address Actions sheet.
+let detailDiscoverySummary = null;
 
 function nowId() {
   return typeof crypto?.randomUUID === "function" ? crypto.randomUUID() : `c-${Date.now()}-${Math.random()}`;
@@ -299,6 +301,8 @@ function render() {
   else if (activeAccountId && showingVisibility) renderVisibility();
   else if (activeAccountId) renderDetail();
   else renderList();
+  // The Address Actions sheet shows the discover's progress, so it redraws with the screen.
+  if (!modalsEl?.querySelector("[data-cold-actions-modal]")?.hidden) renderColdActionsSheet();
 }
 
 function renderList() {
@@ -407,7 +411,6 @@ function renderDetail() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
       </button>
       <strong>${deps.escapeHtml(account.label)}</strong>
-      <button class="kaposts-icon-button cold-checklist-button" type="button" data-cold-open-visibility aria-label="Manage address visibility" title="Manage address visibility">${CHECKLIST_ICON}</button>
       <button class="kaposts-icon-button cold-trash-button" type="button" data-cold-remove aria-label="Remove account">${TRASH_ICON}</button>
     </div>
     <div class="cold-summary">
@@ -427,6 +430,9 @@ function renderDetail() {
         <p class="cold-summary-label">Total Balance</p>
         <p class="cold-summary-balance">${fmtKasExact(totalSompi)} KAS</p>
       </div>
+      <button class="primary-button cold-capsule cold-summary-actions" type="button" data-cold-actions-toggle ${detailBusy ? "disabled" : ""}>
+        ${busyLabel ? deps.escapeHtml(busyLabel) : "Address Actions"}
+      </button>
     </div>
     <div class="cold-address-list">
       ${detailLoading && detailEntries.length === 0
@@ -435,23 +441,67 @@ function renderDetail() {
           ? '<p class="cold-detail-note">No addresses discovered yet.</p>'
           : sorted.map((e) => addressRowHtml(account, e)).join("")}
     </div>
-    <div class="cold-bottom-actions cold-actions-wrap">
-      <button class="primary-button cold-capsule" type="button" data-cold-actions-toggle ${detailBusy ? "disabled" : ""} aria-haspopup="true" aria-expanded="false">
-        ${busyLabel ? deps.escapeHtml(busyLabel) : "Address Actions"}
-      </button>
-      <div class="spending-row-menu cold-actions-menu" data-cold-actions-menu role="menu" hidden>
-        <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-generate>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>Generate More Addresses
-        </button>
-        <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-discover>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>Discover Addresses
-        </button>
-        <button type="button" role="menuitem" class="spending-row-menu-item" data-cold-refresh>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 6.06M20 5v6h-6"/></svg>Refresh Balances
-        </button>
-      </div>
-    </div>
     <p class="broadcast-intro cold-detail-footnote">Keys never leave your KasSigner — sends are built here, signed on the device by QR, and broadcast after verification.</p>`;
+}
+
+/// The half sheet behind "Address Actions" (iOS `addressActionsSheet`).
+///
+/// A sheet of titled rows rather than the bare dropdown this replaces, because each of these does
+/// something worth a sentence - and because Address Visibility now lives here. It used to be an
+/// unlabelled checklist glyph in the header, which said nothing about what it did; it is one of
+/// this account's address actions, so it belongs with the others where it has room to explain
+/// itself.
+///
+/// Discovery reports into the sheet rather than dismissing it, and the scan belongs to the SCREEN,
+/// not to the sheet - closing it does not stop the scan, which is what "Close and Keep Scanning"
+/// says.
+function renderColdActionsSheet() {
+  const body = modalsEl?.querySelector("[data-cold-actions-body]");
+  if (!body) return;
+  const discovering = detailBusy === "discover";
+  const row = (action, title, subtitle, icon, disabled = false) => `
+    <button type="button" class="cold-action-row" data-cold-${action} ${disabled ? "disabled" : ""}>
+      <span class="cold-action-icon" aria-hidden="true">${icon}</span>
+      <span class="cold-action-copy">
+        <strong>${title}</strong>
+        <small>${subtitle}</small>
+      </span>
+    </button>`;
+  body.innerHTML = `
+    <div class="modal-head">
+      <div><p class="modal-kicker">Cold Storage</p><h2>Address Actions</h2></div>
+      <button class="modal-close" type="button" data-cold-actions-close aria-label="Close">×</button>
+    </div>
+    ${discovering
+      ? `<div class="cold-actions-busy">
+           <span class="initial-sync-spinner" aria-hidden="true"></span>
+           <strong>Discovering addresses</strong>
+           <p>Checks the first thousand addresses whatever the gaps, in one sweep.</p>
+           <button type="button" class="cold-inline-link" data-cold-actions-close>Close and Keep Scanning</button>
+         </div>`
+      : `<div class="cold-action-rows">
+           ${row("generate", "Generate More Addresses", "Reveals the next unused address in this account.",
+                 '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>')}
+           ${row("discover", "Discover Addresses", "Finds addresses holding a balance or a KNS domain.",
+                 '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>')}
+           ${row("open-visibility", "Address Visibility", "Check off every address you want on the list, in one sitting.",
+                 CHECKLIST_ICON)}
+           ${row("refresh", "Refresh Balances", "Re-reads every address on this list from the chain.",
+                 '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 6.06M20 5v6h-6"/></svg>')}
+         </div>
+         ${detailDiscoverySummary ? `<p class="field-hint cold-actions-summary">${deps.escapeHtml(detailDiscoverySummary)}</p>` : ""}`}`;
+}
+
+function openColdActionsSheet() {
+  const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
+  if (!modal) return;
+  renderColdActionsSheet();
+  modal.hidden = false;
+}
+
+function closeColdActionsSheet() {
+  const modal = modalsEl?.querySelector("[data-cold-actions-modal]");
+  if (modal) modal.hidden = true;
 }
 
 // --- Address Visibility checklist (port of the spending-chain screen): a paged list of
@@ -1550,6 +1600,9 @@ function buildModals() {
         <button class="cold-qr-copy" type="button" data-cold-qr-copy>${COPY_ICON}Copy Address</button>
       </div>
     </div>
+    <div class="modal-backdrop" data-cold-actions-modal hidden>
+      <div class="contact-modal cold-actions-modal" role="dialog" aria-modal="true" aria-label="Address Actions" data-cold-actions-body></div>
+    </div>
     <div class="modal-backdrop" data-cold-send-modal hidden>
       <div class="contact-modal cold-send-modal" role="dialog" aria-modal="true" aria-label="Cold Storage send" data-cold-send-body></div>
     </div>
@@ -1575,6 +1628,20 @@ function buildModals() {
   });
   modalsEl.querySelectorAll("[data-cold-confirm-cancel]").forEach((b) => b.addEventListener("click", () => finishConfirmModal(false)));
   confirmModal.addEventListener("mousedown", (event) => { if (event.target === confirmModal) finishConfirmModal(false); });
+
+  const actionsModal = modalsEl.querySelector("[data-cold-actions-modal]");
+  actionsModal.addEventListener("mousedown", (event) => { if (event.target === actionsModal) closeColdActionsSheet(); });
+  actionsModal.addEventListener("click", (event) => {
+    if (event.target.closest("[data-cold-actions-close]")) { closeColdActionsSheet(); return; }
+    // The rows themselves are handled by the root delegate, which the modal is NOT inside - it
+    // lives in modalsEl, on document.body - so forward them.
+    const action = event.target.closest("[data-cold-generate], [data-cold-discover], [data-cold-refresh], [data-cold-open-visibility]");
+    if (!action || action.disabled) return;
+    if (action.matches("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); }
+    else if (action.matches("[data-cold-discover]")) { runAddressAction("discover"); }
+    else if (action.matches("[data-cold-refresh]")) { closeColdActionsSheet(); runAddressAction("refresh"); }
+    else { closeColdActionsSheet(); showingVisibility = true; visibilityPage = 0; visUsageCache.clear(); render(); }
+  });
 
   const qrModal = modalsEl.querySelector("[data-cold-qr-modal]");
   modalsEl.querySelector("[data-cold-qr-close]").addEventListener("click", closeQrModal);
@@ -1839,6 +1906,7 @@ function closeQrModal() {
 
 async function openAccount(id) {
   activeAccountId = id;
+  detailDiscoverySummary = null;
   showingVisibility = false;
   visibilityPage = 0;
   detailEntries = [];
@@ -2274,15 +2342,32 @@ async function runAddressAction(kind) {
       // that is truly unused (zero balance, no on-chain history), un-hiding it if the
       // checklist had hidden it — only when every index is spoken for does the chain
       // extend by one.
+      // The candidate must be HIDDEN as well as unused. Without that check the lowest unused
+      // index, once revealed, satisfies every test again on the next press - so Generate kept
+      // picking the same row that was already on the list and appeared to do nothing at all.
+      // `detailEntries` only holds the VISIBLE rows, so the hidden ones have to be derived here.
       const hiddenSet = new Set(account.hidden.map(Number));
       let pick = null;
-      const candidates = [...detailEntries].sort((a, b) => a.index - b.index);
-      for (const entry of candidates) {
-        if (entry.balanceSompi === undefined) continue; // unknown balance — never risk recycling
-        if ((entry.balanceSompi || 0) > 0) continue;
-        const used = entry.everUsed !== undefined ? entry.everUsed : await addressHasHistory(entry.address);
+      const hiddenIndices = [...hiddenSet].filter((i) => i <= account.maxIndex).sort((a, b) => a - b);
+      for (const index of hiddenIndices) {
+        let address;
+        try { address = deriveReceiveAddresses(account.kpub, index, index + 1)[0]; }
+        catch { continue; }
+        if (!address) continue;
+        // Recycle only on a CONFIRMED-unused answer: a failed probe skips the index, because
+        // extending the chain is always safe and recycling an unknown one is not.
+        let balance = balanceCache.get(address);
+        if (balance === undefined) {
+          try { balance = await fetchBalance(address); }
+          catch { continue; }
+          balanceCache.set(address, balance);
+        }
         if (activeAccountId !== account.id) return;
-        if (!used) { pick = entry.index; break; }
+        if ((balance || 0) > 0) continue;
+        if (await addressHasHistory(address)) continue;
+        if (activeAccountId !== account.id) return;
+        pick = index;
+        break;
       }
       if (pick === null) {
         account.maxIndex += 1;
@@ -2296,6 +2381,13 @@ async function runAddressAction(kind) {
     } else if (kind === "discover") {
       await discoverAddresses(account);
       await loadDetail();
+      // What it found, reported in the sheet the way iOS reports `discoverySummary` - the COUNT
+      // of addresses worth showing, not the high-water index, which is a number nobody asked for.
+      const found = detailEntries.filter((e) => (e.balanceSompi || 0) > 0 || detailDomainOwning.has(e.address)).length;
+      detailDiscoverySummary = found === 0
+        ? "Nothing holding a balance or a domain turned up."
+        : `Found ${found} address${found === 1 ? "" : "es"} holding a balance or a domain.`;
+      deps.showToast?.(detailDiscoverySummary);
     } else if (kind === "refresh") {
       await loadDetail({ useCache: false });
     }
@@ -2397,14 +2489,7 @@ export function initColdStorage(dependencies) {
       if (menu && willOpen) { menu.hidden = false; addrToggle.setAttribute("aria-expanded", "true"); }
       return;
     }
-    if (event.target.closest("[data-cold-actions-toggle]")) {
-      const menu = rootEl.querySelector("[data-cold-actions-menu]");
-      const toggle = rootEl.querySelector("[data-cold-actions-toggle]");
-      const willOpen = menu && menu.hidden;
-      closeAllColdMenus();
-      if (menu && willOpen) { menu.hidden = false; toggle?.setAttribute("aria-expanded", "true"); }
-      return;
-    }
+    if (event.target.closest("[data-cold-actions-toggle]")) { openColdActionsSheet(); return; }
 
     // --- menu items ---
     const accountAction = event.target.closest("[data-cold-account-action]");
@@ -2419,9 +2504,11 @@ export function initColdStorage(dependencies) {
       handleAddressAction(addrAction.dataset.coldAddrAction, Number(addrAction.dataset.index));
       return;
     }
-    if (event.target.closest("[data-cold-generate]")) { closeAllColdMenus(); runAddressAction("generate"); return; }
-    if (event.target.closest("[data-cold-discover]")) { closeAllColdMenus(); runAddressAction("discover"); return; }
-    if (event.target.closest("[data-cold-refresh]")) { closeAllColdMenus(); runAddressAction("refresh"); return; }
+    if (event.target.closest("[data-cold-generate]")) { closeColdActionsSheet(); runAddressAction("generate"); return; }
+    // Discover leaves the sheet UP: it reports its progress there, and closing on an unmoving
+    // spinner would say nothing about whether it was working.
+    if (event.target.closest("[data-cold-discover]")) { runAddressAction("discover"); return; }
+    if (event.target.closest("[data-cold-refresh]")) { closeColdActionsSheet(); runAddressAction("refresh"); return; }
 
     // --- navigation + simple buttons ---
     const open = event.target.closest("[data-cold-open]");
@@ -2439,6 +2526,7 @@ export function initColdStorage(dependencies) {
       return;
     }
     if (event.target.closest("[data-cold-open-visibility]")) {
+      closeColdActionsSheet();
       showingVisibility = true;
       visibilityPage = 0;
       // Every open starts from live data: any action since the last visit (generate,
