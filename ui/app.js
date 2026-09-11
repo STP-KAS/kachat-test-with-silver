@@ -18032,9 +18032,81 @@ function renderGroupMessages() {
 }
 
 // --- create / add-member modal ---
+/// Everyone you could add in one click: your existing chats plus both directions of your KaPosts
+/// follow graph - the same set Create Chat offers, and the same set iOS builds here.
+///
+/// Returns plain {address, name} rows rather than contacts, since most of the follow graph has no
+/// contact record to hand: a name is resolved once here instead of per comparison in the sort,
+/// which is what made this list crawl on iOS before it was cached the same way.
+/// Matches iOS's AddContactView.maxGroupMembers.
+const MAX_GROUP_MEMBERS = 50;
+
+/// The photo chosen while creating a group, as hex, plus a data URL for the preview.
+///
+/// Nothing is sent from here - the group does not exist yet, so it is held until createGroup()
+/// returns an id to attach it to. Same ~10KB JPEG budget as the Group Info photo flow, because it
+/// rides on-chain to every member either way.
+let groupCreatePhotoHex = null;
+let groupCreatePhotoUrl = null;
+
+function renderGroupCreatePhoto() {
+  const image = document.querySelector("[data-group-create-photo-image]");
+  const placeholder = document.querySelector("[data-group-create-photo-placeholder]");
+  const clear = document.querySelector("[data-group-create-photo-clear]");
+  if (image) {
+    image.hidden = !groupCreatePhotoUrl;
+    if (groupCreatePhotoUrl) image.src = groupCreatePhotoUrl;
+    else image.removeAttribute("src");
+  }
+  if (placeholder) placeholder.hidden = Boolean(groupCreatePhotoUrl);
+  if (clear) clear.hidden = !groupCreatePhotoUrl;
+}
+
+function clearGroupCreatePhoto() {
+  groupCreatePhotoHex = null;
+  groupCreatePhotoUrl = null;
+  renderGroupCreatePhoto();
+}
+
+async function pickGroupCreatePhoto() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageBlob(file, { targetBytes: 10 * 1024, maxDimension: 256 });
+      groupCreatePhotoHex = groupPhotoHexFromDataUrl(compressed.dataUrl);
+      groupCreatePhotoUrl = compressed.dataUrl;
+      renderGroupCreatePhoto();
+    } catch (error) {
+      setStatus(`Could not read that image: ${error.message}`);
+    }
+  });
+  input.click();
+}
+
 function eligibleGroupContacts(excludeAddresses = []) {
   const exclude = new Set([engine.address, ...excludeAddresses].filter(Boolean));
-  return (state.contacts || []).filter((c) => c.address && !exclude.has(c.address));
+  const addresses = new Set();
+  for (const contact of state.contacts || []) {
+    if (contact.address && !exclude.has(contact.address)) addresses.add(contact.address);
+  }
+  for (const row of createChatPickerRows) {
+    if (row.address && !exclude.has(row.address)) addresses.add(row.address);
+  }
+  return [...addresses]
+    .map((address) => {
+      const contact = (state.contacts || []).find((entry) => entry.address === address);
+      return {
+        address,
+        contact,
+        name: contact ? displayNameForAddress(contact)
+          : (engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || shortAddress(address)),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 function renderGroupMemberPicker(excludeAddresses = []) {
   if (!groupMemberPicker) return;
@@ -18046,28 +18118,35 @@ function renderGroupMemberPicker(excludeAddresses = []) {
   // Filter by the search box (name, nickname, or address). Selection persists across
   // filtering because it is tracked by address in groupCreateSelected, not by the DOM.
   const query = String(groupMemberSearch?.value || "").trim().toLowerCase();
-  const contacts = query
-    ? all.filter((c) =>
-        displayNameForAddress(c).toLowerCase().includes(query) ||
-        String(c.name || "").toLowerCase().includes(query) ||
-        String(c.address || "").toLowerCase().includes(query))
+  const rows = query
+    ? all.filter((row) => row.name.toLowerCase().includes(query) || row.address.toLowerCase().includes(query))
     : all;
-  if (!contacts.length) {
-    groupMemberPicker.innerHTML = `<p class="group-picker-empty">No contacts match that search.</p>`;
+  if (!rows.length) {
+    groupMemberPicker.innerHTML = `<p class="group-picker-empty">No matches.</p>`;
     return;
   }
-  groupMemberPicker.innerHTML = contacts.map((c) => {
-    const selected = groupCreateSelected.has(c.address);
+  groupMemberPicker.innerHTML = rows.map((row) => {
+    const selected = groupCreateSelected.has(row.address);
+    const avatar = row.contact
+      ? avatarHtmlFor(row.contact, "chat-avatar")
+      : groupPickerAvatarHtml(row.address, row.name);
     return `
-      <button type="button" class="group-member-option${selected ? " selected" : ""}" data-group-member-toggle="${escapeHtml(c.address)}">
-        ${avatarHtmlFor(c, "chat-avatar")}
+      <button type="button" class="group-member-option${selected ? " selected" : ""}" data-group-member-toggle="${escapeHtml(row.address)}">
+        ${avatar}
         <span class="group-member-option-meta">
-          <strong>${escapeHtml(displayNameForAddress(c))}</strong>
-          <span>${escapeHtml(shortAddress(c.address))}</span>
+          <strong>${escapeHtml(row.name)}</strong>
+          <span>${escapeHtml(shortAddress(row.address))}</span>
         </span>
         <span class="group-member-check"><svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg></span>
       </button>`;
   }).join("");
+}
+
+/// Avatar for someone with no contact record - straight off their KNS profile, initials otherwise.
+function groupPickerAvatarHtml(address, name) {
+  const avatarUrl = engine.peekKnsAddressProfile?.(address)?.profile?.avatarUrl;
+  if (avatarUrl) return `<span class="chat-avatar"><img src="${escapeHtml(avatarUrl)}" alt="" /></span>`;
+  return `<span class="chat-avatar">${escapeHtml(initialsFor(name))}</span>`;
 }
 function updateGroupCreateSubmit() {
   if (!groupCreateSubmit) return;
@@ -18103,10 +18182,14 @@ function renderGroupSelectedMembers() {
   }
   groupMembersList.innerHTML = addrs.map((addr) => {
     const contact = (state.contacts || []).find((c) => c.address === addr);
-    const name = contact ? displayNameForAddress(contact) : shortAddress(addr);
+    // Someone added from the follow graph or by domain has no contact record, but usually does
+    // have a KNS name and avatar - falling straight to the short address dropped both.
+    const name = contact
+      ? displayNameForAddress(contact)
+      : (engine.peekKnsAddressInfo?.(addr)?.explicitPrimaryDomain || shortAddress(addr));
     const avatar = contact
       ? avatarHtmlFor(contact, "chat-avatar")
-      : `<span class="chat-avatar">${escapeHtml(initialsFor(shortAddress(addr)))}</span>`;
+      : groupPickerAvatarHtml(addr, name);
     return `
       <div class="group-member-added">
         ${avatar}
@@ -18126,13 +18209,22 @@ function openGroupCreate() {
   if (groupCreateTitle) groupCreateTitle.textContent = "New Group";
   if (groupCreateSubmit) groupCreateSubmit.textContent = "Create Group";
   if (groupNameInput) { groupNameInput.value = ""; groupNameInput.hidden = false; }
+  const identityRow = document.querySelector("[data-group-identity-row]");
+  if (identityRow) identityRow.hidden = false;
   if (groupPickerHint) groupPickerHint.textContent = "Add contacts to the group. You control the membership as the group admin.";
   if (groupCreateError) groupCreateError.hidden = true;
   if (groupMemberSearch) groupMemberSearch.value = "";
   groupPickerExclude = [];
+  clearGroupCreatePhoto();
   resetGroupAddressSection();
   renderGroupMemberPicker();
   updateGroupCreateSubmit();
+  // The picker offers the follow graph as well as contacts; this fills it and repaints when the
+  // indexer answers. Guarded internally, so sharing it with Create Chat costs nothing.
+  loadCreateChatPicker().then(() => {
+    if (!groupCreateModal || groupCreateModal.hidden) return;
+    renderGroupMemberPicker(groupPickerExclude);
+  });
   // Both sections start collapsed: Members opens to review who's added; Contacts opens to
   // search and pick people.
   setGroupSection(groupMembersToggle, groupMembersBody, false);
@@ -18150,13 +18242,20 @@ function openGroupAddMember(groupId) {
   if (groupCreateTitle) groupCreateTitle.textContent = "Add Member";
   if (groupCreateSubmit) groupCreateSubmit.textContent = "Add";
   if (groupNameInput) { groupNameInput.value = ""; groupNameInput.hidden = true; }
+  const identityRow = document.querySelector("[data-group-identity-row]");
+  if (identityRow) identityRow.hidden = true;
   if (groupPickerHint) groupPickerHint.textContent = "Adding a member issues a fresh group key to everyone.";
   if (groupCreateError) groupCreateError.hidden = true;
   if (groupMemberSearch) groupMemberSearch.value = "";
   groupPickerExclude = g.members.map((m) => m.address);
+  clearGroupCreatePhoto();
   resetGroupAddressSection();
   renderGroupMemberPicker(groupPickerExclude);
   updateGroupCreateSubmit();
+  loadCreateChatPicker().then(() => {
+    if (!groupCreateModal || groupCreateModal.hidden) return;
+    renderGroupMemberPicker(groupPickerExclude);
+  });
   // In add-member mode, open Contacts straight away since picking people is the whole task.
   setGroupSection(groupMembersToggle, groupMembersBody, false);
   setGroupSection(groupContactsToggle, groupContactsBody, true);
@@ -18172,13 +18271,64 @@ function setGroupAddressStatus(html) {
   groupAddressStatus.hidden = !html;
 }
 
+/// The same "who am I about to add" card the 1:1 sheet shows, for the group's address field.
+///
+/// A raw address tells you nothing about whether you typed the right one; a face and a domain do.
+/// Only rendered for an address the app is confident about, so it never flickers through wrong
+/// faces mid-type.
+let groupAddressPreviewToken = 0;
+function renderGroupAddressPreview() {
+  const card = document.querySelector("[data-group-address-preview]");
+  if (!card) return;
+  const address = groupAddressResolved || "";
+  if (!address) { card.hidden = true; card.innerHTML = ""; return; }
+
+  const profile = engine.peekKnsAddressProfile?.(address);
+  const info = engine.peekKnsAddressInfo?.(address);
+  const domain = info?.explicitPrimaryDomain || profile?.domainName || null;
+  const avatarUrl = profile?.profile?.avatarUrl || "";
+  const looking = !profile && !info;
+
+  card.hidden = false;
+  card.innerHTML = `
+    <span class="create-chat-preview-avatar">${avatarUrl
+      ? `<img src="${escapeHtml(avatarUrl)}" alt="" />`
+      : escapeHtml(initialsFor(domain || address))}</span>
+    <span class="create-chat-preview-copy">
+      <span class="create-chat-preview-name${domain ? "" : " muted"}">${escapeHtml(domain || (looking ? "Looking up…" : "No KNS domain"))}</span>
+      <span class="create-chat-preview-address">${escapeHtml(address)}</span>
+    </span>`;
+
+  if (looking) {
+    const token = ++groupAddressPreviewToken;
+    Promise.allSettled([
+      engine.getKnsAddressProfile?.(address),
+      engine.getKnsAddressInfo?.(address),
+    ]).then(() => {
+      if (token !== groupAddressPreviewToken) return;
+      if (groupAddressResolved !== address) return;
+      renderGroupAddressPreview();
+    });
+  }
+}
+
 function resetGroupAddressSection() {
   groupAddressResolved = null;
   groupAddressResolveToken++;
   if (groupAddressInput) groupAddressInput.value = "";
   setGroupAddressStatus("");
+  renderGroupAddressPreview();
   if (groupAddressAddButton) groupAddressAddButton.disabled = true;
   renderGroupSelectedMembers();
+}
+
+/// Says so while you are still typing, rather than waiting for the Add click to refuse. iOS shows
+/// exactly these three, in this order.
+function groupAddressDuplicateWarning(address) {
+  if (address === engine.address) return "That is your own address";
+  if (groupPickerExclude.includes(address)) return "Already in this group";
+  if (groupCreateSelected.has(address)) return "Already added to this group";
+  return null;
 }
 
 // Live validity feedback for the group address field (raw address or KNS domain),
@@ -18191,18 +18341,22 @@ function updateGroupAddressState() {
   groupAddressResolved = null;
   if (groupAddressAddButton) groupAddressAddButton.disabled = true;
 
-  if (!raw) { setGroupAddressStatus(""); return; }
+  if (!raw) { setGroupAddressStatus(""); renderGroupAddressPreview(); return; }
 
   if (raw.startsWith("kaspa:") || raw.startsWith("kaspatest:")) {
     let valid = false;
     try { validateContactAddress(raw); valid = true; } catch { valid = false; }
     if (valid) {
       groupAddressResolved = raw;
-      setGroupAddressStatus('<span class="create-chat-status-good">✓ Valid address</span>');
-      if (groupAddressAddButton) groupAddressAddButton.disabled = false;
+      const dupe = groupAddressDuplicateWarning(raw);
+      setGroupAddressStatus(dupe
+        ? `<span class="create-chat-status-bad">✕ ${escapeHtml(dupe)}</span>`
+        : '<span class="create-chat-status-good">✓ Valid address</span>');
+      if (groupAddressAddButton) groupAddressAddButton.disabled = Boolean(dupe);
     } else {
       setGroupAddressStatus('<span class="create-chat-status-bad">✕ Invalid address format</span>');
     }
+    renderGroupAddressPreview();
     return;
   }
 
@@ -18215,11 +18369,15 @@ function updateGroupAddressState() {
         if (token !== groupAddressResolveToken) return;
         if (resolution?.ownerAddress) {
           groupAddressResolved = resolution.ownerAddress;
-          setGroupAddressStatus(`<span class="create-chat-status-good">✓ Resolved: ${escapeHtml(resolution.domain || raw)}</span><span class="create-chat-status-mono">${escapeHtml(resolution.ownerAddress)}</span>`);
-          if (groupAddressAddButton) groupAddressAddButton.disabled = false;
+          const dupe = groupAddressDuplicateWarning(resolution.ownerAddress);
+          setGroupAddressStatus(dupe
+            ? `<span class="create-chat-status-bad">✕ ${escapeHtml(dupe)}</span><span class="create-chat-status-mono">${escapeHtml(resolution.ownerAddress)}</span>`
+            : `<span class="create-chat-status-good">✓ Resolved: ${escapeHtml(resolution.domain || raw)}</span><span class="create-chat-status-mono">${escapeHtml(resolution.ownerAddress)}</span>`);
+          if (groupAddressAddButton) groupAddressAddButton.disabled = Boolean(dupe);
         } else {
           setGroupAddressStatus('<span class="create-chat-status-bad">✕ KNS domain not found</span>');
         }
+        renderGroupAddressPreview();
       } catch {
         if (token !== groupAddressResolveToken) return;
         setGroupAddressStatus('<span class="create-chat-status-bad">✕ KNS domain not found</span>');
@@ -18229,6 +18387,7 @@ function updateGroupAddressState() {
   }
 
   setGroupAddressStatus('<span class="create-chat-status-bad">✕ Invalid address format</span>');
+  renderGroupAddressPreview();
 }
 
 function addResolvedGroupAddress() {
@@ -18237,7 +18396,7 @@ function addResolvedGroupAddress() {
   if (addr === engine.address) { setGroupAddressStatus('<span class="create-chat-status-bad">✕ That is your own address</span>'); return; }
   if (groupPickerExclude.includes(addr)) { setGroupAddressStatus('<span class="create-chat-status-muted">Already in this group</span>'); return; }
   if (groupCreateSelected.has(addr)) { setGroupAddressStatus('<span class="create-chat-status-muted">Already added</span>'); return; }
-  if (groupCreateSelected.size >= 50) { setGroupAddressStatus('<span class="create-chat-status-bad">✕ A group can have at most 50 members</span>'); return; }
+  if (groupCreateSelected.size >= MAX_GROUP_MEMBERS) { setGroupAddressStatus(`<span class="create-chat-status-bad">✕ A group can have at most ${MAX_GROUP_MEMBERS} members</span>`); return; }
   groupCreateSelected.add(addr);
   resetGroupAddressSection();
   renderGroupMemberPicker(groupPickerExclude);
@@ -18424,7 +18583,9 @@ async function syncGroupsNow({ catchUp = false } = {}) {
 
 // --- events ---
 document.querySelectorAll("[data-new-group]").forEach((btn) => btn.addEventListener("click", openGroupCreate));
-document.querySelector("[data-close-group-create]")?.addEventListener("click", closeGroupCreate);
+document.querySelectorAll("[data-close-group-create]").forEach((button) => {
+  button.addEventListener("click", closeGroupCreate);
+});
 groupCreateModal?.addEventListener("click", (event) => { if (event.target === groupCreateModal) closeGroupCreate(); });
 groupNameInput?.addEventListener("input", updateGroupCreateSubmit);
 // Live-filter the member list as the user types (uses the current exclude set).
@@ -18436,6 +18597,8 @@ groupAddressInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") { event.preventDefault(); addResolvedGroupAddress(); }
 });
 groupAddressAddButton?.addEventListener("click", addResolvedGroupAddress);
+document.querySelector("[data-group-create-photo]")?.addEventListener("click", pickGroupCreatePhoto);
+document.querySelector("[data-group-create-photo-clear]")?.addEventListener("click", clearGroupCreatePhoto);
 groupAddressPasteButton?.addEventListener("click", async () => {
   try {
     if (!navigator.clipboard?.readText) return;
@@ -18515,8 +18678,16 @@ groupMemberPicker?.addEventListener("click", (event) => {
   const btn = event.target.closest("[data-group-member-toggle]");
   if (!btn) return;
   const address = btn.dataset.groupMemberToggle;
-  if (groupCreateSelected.has(address)) groupCreateSelected.delete(address);
-  else groupCreateSelected.add(address);
+  if (groupCreateSelected.has(address)) {
+    groupCreateSelected.delete(address);
+  } else if (groupCreateSelected.size >= MAX_GROUP_MEMBERS) {
+    // The by-address field enforced this and the checklist did not, so the cap could be walked
+    // straight past by clicking rows.
+    setGroupAddressStatus(`<span class="create-chat-status-bad">✕ A group can have at most ${MAX_GROUP_MEMBERS} members</span>`);
+    return;
+  } else {
+    groupCreateSelected.add(address);
+  }
   btn.classList.toggle("selected", groupCreateSelected.has(address));
   updateGroupCreateSubmit();
 });
@@ -18551,16 +18722,34 @@ groupCreateSubmit?.addEventListener("click", async () => {
       if (!name) { updateGroupCreateSubmit(); return; }
       // Estimate the create cost (one invite per member + a self-recovery copy) before committing.
       {
-        const txCount = members.length + 1;
+        // One invite per member, a self-recovery copy, and - if a photo was chosen - one photo
+        // control per member on top, since the photo rides on-chain to each of them.
+        const photoTx = groupCreatePhotoHex ? members.length : 0;
+        const txCount = members.length + 1 + photoTx;
         let feeLine = `\n\n(${txCount} network transaction${txCount === 1 ? "" : "s"}.)`;
         try {
-          const per = parseFloat(await engine.estimateMessageFee(2 * (400 + (members.length + 1) * 70)) || "0");
-          if (per * txCount > 0) feeLine = `\n\nEstimated network fee ≈ ${(per * txCount).toFixed(6)} KAS across ${txCount} transaction${txCount === 1 ? "" : "s"}.`;
+          const perInvite = parseFloat(await engine.estimateMessageFee(2 * (400 + (members.length + 1) * 70)) || "0");
+          const perPhoto = photoTx
+            ? parseFloat(await engine.estimateMessageFee(2 * (300 + groupCreatePhotoHex.length)) || "0")
+            : 0;
+          const total = perInvite * (members.length + 1) + perPhoto * photoTx;
+          if (total > 0) feeLine = `\n\nEstimated network fee ≈ ${total.toFixed(6)} KAS across ${txCount} transaction${txCount === 1 ? "" : "s"}.`;
         } catch {}
         if (!await confirmText(`Create "${name}" and invite ${members.length} member${members.length === 1 ? "" : "s"}?${feeLine}`)) { updateGroupCreateSubmit(); return; }
       }
       setStatus("Creating group and inviting members…");
       const record = await mgr.createGroup({ name, memberAddresses: members });
+      // The photo goes out after the group exists, since it is addressed to its members. A photo
+      // that fails to distribute must not fail the creation - the group is already real, and the
+      // admin can retry from Group Info.
+      if (groupCreatePhotoHex) {
+        setStatus("Sending the group photo…");
+        try {
+          await mgr.setGroupPhoto(record.groupId, groupCreatePhotoHex);
+        } catch (error) {
+          setStatus(`Group created, but the photo did not reach everyone: ${error.message}`);
+        }
+      }
       // Take the admin straight into the new group. The modal closes first, then the thread
       // opens in the detail pane.
       closeGroupCreate();

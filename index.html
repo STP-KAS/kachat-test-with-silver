@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=342" />
+  <link rel="stylesheet" href="./ui/styles.css?v=343" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -1724,7 +1724,17 @@
         <button class="modal-close" type="button" data-close-group-create aria-label="Close">×</button>
       </div>
       <div class="group-create-scroll">
-      <input class="group-name-input" type="text" maxlength="40" placeholder="Group name" autocomplete="off" spellcheck="false" data-group-name-input />
+      <div class="group-identity-row" data-group-identity-row>
+        <button type="button" class="group-photo-picker" data-group-create-photo aria-label="Add group photo">
+          <img class="group-photo-picker-image" data-group-create-photo-image alt="" hidden />
+          <span class="group-photo-picker-placeholder" data-group-create-photo-placeholder aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 8.5h3.2l1.4-2h6.8l1.4 2H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13.6" r="3.4"/></svg>
+            <span>Add<br />Photo</span>
+          </span>
+        </button>
+        <input class="group-name-input" type="text" maxlength="40" placeholder="Group name" autocomplete="off" spellcheck="false" data-group-name-input />
+      </div>
+      <button type="button" class="group-photo-clear" data-group-create-photo-clear hidden>Remove photo</button>
       <p class="field-hint" data-group-picker-hint>Add contacts to the group. You control the membership as the group admin.</p>
 
       <!-- Members (N): collapsible list of who has been added so far. -->
@@ -1745,7 +1755,7 @@
           <svg class="group-section-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <div class="group-section-body" data-group-contacts-body hidden>
-          <input class="group-member-search" type="search" placeholder="Search contacts" autocomplete="off" data-group-member-search />
+          <input class="group-member-search" type="search" placeholder="Search name or address" autocomplete="off" data-group-member-search />
           <div class="group-member-picker" data-group-member-picker></div>
         </div>
       </div>
@@ -1769,6 +1779,7 @@
         </div>
         <input type="file" accept=".vcf,text/vcard,text/plain" hidden data-group-address-import-file />
         <p class="group-address-status" data-group-address-status hidden></p>
+        <div class="create-chat-preview" data-group-address-preview hidden></div>
         <button type="button" class="secondary-button group-address-add" data-group-address-add disabled>Add to Group</button>
       </div>
 
@@ -2735,7 +2746,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=355"></script>
+  <script type="module" src="./ui/app.js?v=356"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>

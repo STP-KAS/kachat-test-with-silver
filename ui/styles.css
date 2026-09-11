@@ -7344,6 +7344,30 @@ body.session-logged-out [data-account-rename-modal] {
 .create-chat-picker-check { flex: 0 0 auto; color: #30d158; font-weight: 900; }
 .create-chat-picker-empty { margin: 8px 2px; color: var(--muted); font-size: 12.5px; }
 
+/* New Group: photo beside the name - the two things that identify a group, together. */
+.group-identity-row { display: flex; align-items: center; gap: 14px; }
+.group-identity-row .group-name-input { flex: 1; min-width: 0; }
+.group-photo-picker {
+  flex: 0 0 auto; position: relative; width: 64px; height: 64px; padding: 0; overflow: hidden;
+  display: grid; place-items: center; cursor: pointer;
+  border: 1px dashed var(--line); border-radius: 50%; background: rgba(255,255,255,.05);
+  color: var(--muted);
+}
+.group-photo-picker:hover { border-color: rgba(98,244,208,.42); color: var(--text); }
+.group-photo-picker-image { width: 100%; height: 100%; object-fit: cover; }
+.group-photo-picker-placeholder {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 9px; font-weight: 700; line-height: 1.1; text-align: center;
+}
+.group-photo-picker-placeholder svg {
+  width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.group-photo-clear {
+  margin: 8px 0 0; padding: 0; border: 0; background: transparent; cursor: pointer;
+  color: #ff6b6b; font: inherit; font-size: 12px; font-weight: 700;
+}
+
 /* Nextcloud (connect card, folder browser, photo grid) */
 .nc-connect-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
 .nc-picker-modal { width: min(100%, 520px); max-height: min(90vh, 720px); display: flex; flex-direction: column; }
