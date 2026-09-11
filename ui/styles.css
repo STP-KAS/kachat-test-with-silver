@@ -4,6 +4,10 @@
      of it reserve this; the chats list deliberately runs underneath it and pads its scroll
      content by the same amount instead. */
   --dock-inset: 124px;
+  /* The dock pill's own width, republished by publishDockWidth() whenever the dock or the window
+     changes. This fallback is the full five-tab pill, so a stylesheet that loads before the script
+     errs on the side of too much room rather than an overlap. */
+  --dock-width: 498px;
   --bg: #070a0d;
   --panel: #101419;
   --panel-2: #151a21;
@@ -149,15 +153,15 @@ button { cursor: pointer; }
   /* Containing block for the compose button, which floats over the chats list rather than over the
      window - see .new-chat-fab. */
   position: relative;
-  /* Two halves of one idea. The negative margin reclaims the dock's reserved strip so the pane's
-     background and right border reach the bottom of the window - stopping short of it left a hard
-     horizontal edge partway down the screen, as though the app had run out. The padding then puts
-     that strip back INSIDE the pane, so the rows themselves still end above the dock and never
-     slide behind it. Backdrop to the bottom, content clear of the dock.
+  /* The pane reaches the bottom of the window rather than stopping at the dock's reserved strip -
+     stopping short left a hard horizontal edge partway down the screen, as though the app had run
+     out. The padding puts that strip back INSIDE the pane, so the rows still end above the dock.
+     Past 1140px the padding goes away and the rows run the whole way down; see that rule for why
+     it is safe there and not here.
 
-     It also gives the compose button the frame it wants: an absolutely positioned child measures
-     from the padding box, so its `bottom` is distance from the window's bottom edge, which is what
-     lets it line up with the dock. */
+     The padding box also gives the compose button the frame it wants: an absolutely positioned
+     child measures from it, so the button's `bottom` is distance from the window's bottom edge,
+     which is what lets it line up with the dock. */
   margin-bottom: calc(-1 * var(--dock-inset));
   padding-bottom: var(--dock-inset);
 }
@@ -311,10 +315,9 @@ button { cursor: pointer; }
 .new-chat-fab {
   position: absolute;
   right: 20px;
-  /* Down on the dock's shoulder rather than floating in the middle of the list. The dock's pill is
-     92px tall sitting 18px off the bottom, so its top edge is at 110px - this leaves 8px of air
-     above it. Going fully level with the dock is a wider-window thing; see the min-width rule
-     below for why. */
+  /* On the dock's shoulder: the pill is 92px tall sitting 18px off the bottom, so its top edge is
+     at 110px and this leaves 8px of air above it. Only the fallback - at 1140px and up the pane
+     stands beside the dock and the button drops level with it. */
   bottom: 118px;
   z-index: 500;
   width: 58px;
@@ -332,15 +335,23 @@ button { cursor: pointer; }
 .new-chat-fab:hover { filter: brightness(1.05); }
 .new-chat-fab .person-plus-icon { width: 27px; height: 27px; }
 
-/* Level with the dock, centred on the pill: 18px off the bottom plus half the 92-58 difference.
-   Only past 1440px, because the dock is centred in the WINDOW while this button is pinned to the
-   right edge of the sidebar, and below that width the two occupy the same horizontal band - the
-   sidebar is 34% of the window, so its right edge only clears the pill's left edge at ~1431px.
-   Level any earlier and the button would sit on top of the dock, covering the tabs. */
-@media (min-width: 1440px) {
+/* Wide enough for the pane to stand BESIDE the dock instead of sharing its horizontal band.
+   The dock is a pill centred in the window, so its left edge is at (100vw - dock)/2; holding the
+   pane's right edge 14px short of that keeps the two apart, and then the rows are free to run to
+   the very bottom of the window with no dead strip and nothing hidden behind the dock.
+
+   1140px is where that stops being possible: below it, (50vw - half the dock - 14px) falls under
+   the pane's own 300px minimum, so narrowing far enough to clear the dock would make the chat list
+   too cramped to read. There the pane keeps its width and its bottom padding instead. */
+@media (min-width: 1140px) {
+  .app-sidebar {
+    flex: 0 0 auto;
+    width: min(clamp(300px, 34%, 620px), calc(50vw - var(--dock-width) / 2 - 14px));
+    padding-bottom: 0;
+  }
+  /* Only the compose button is over the list now, not the dock. */
+  .sidebar-scroll { padding-bottom: 110px; }
   .new-chat-fab { bottom: 35px; }
-  /* Down there the button sits entirely below the list, so the list needs no room for it. */
-  .sidebar-scroll { padding-bottom: 24px; }
 }
 
 /* Narrow fallback: below 860px, only one of sidebar/detail is visible at a time,

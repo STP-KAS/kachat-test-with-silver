@@ -6651,6 +6651,25 @@ function hubVisibleTabs() {
   return dockPrefs.hub.filter(tabAllowed);
 }
 
+/// Publishes the dock's real width so the chats pane can stand beside it rather than under it.
+///
+/// The dock is a centred pill whose width depends on how many tabs you keep in it (Customize Dock
+/// allows up to five), so a hardcoded figure would either let the pane overlap a wide dock or
+/// waste space next to a narrow one. Measured instead, and re-measured whenever the dock changes
+/// or the window does.
+function publishDockWidth() {
+  const tabbar = document.querySelector(".sidebar-tabbar");
+  if (!tabbar) return;
+  const width = Math.round(tabbar.getBoundingClientRect().width);
+  if (width > 0) document.documentElement.style.setProperty("--dock-width", `${width}px`);
+}
+
+window.addEventListener("resize", publishDockWidth);
+if (typeof ResizeObserver === "function") {
+  const dockEl = document.querySelector(".sidebar-tabbar");
+  if (dockEl) new ResizeObserver(publishDockWidth).observe(dockEl);
+}
+
 function applyDockLayout() {
   const tabbar = document.querySelector(".sidebar-tabbar");
   if (!tabbar) return;
@@ -6671,6 +6690,7 @@ function applyDockLayout() {
 
   renderHubGrid();
   renderDockEditor();
+  publishDockWidth();
 
   // Apps lives in either the dock OR the Profile view, never both. Once it holds a dock slot,
   // drop the redundant "Apps" row from Profile; bring it back when it moves into the Hub.
