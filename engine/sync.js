@@ -456,7 +456,10 @@ export async function syncIncomingHandshakesFromIndexer({
 
     handshakes.push({
       txid, sender, receiver, alias: metadata.alias, conversationId: metadata.conversationId,
-      isResponse: metadata.isResponse, createdAt: blockTime || Date.now(),
+      // `blockTime` raw, 0 when the indexer gave none - callers that compare against a deletion
+      // tombstone need to tell "before the deletion" from "no time in hand", which createdAt's
+      // Date.now() fallback hides.
+      isResponse: metadata.isResponse, blockTime: blockTime || 0, createdAt: blockTime || Date.now(),
       acceptingBlock: row.accepting_block || null,
       daaScore: row.accepting_daa_score != null ? String(row.accepting_daa_score) : null,
       payloadHex: String(row.message_payload || ""), encryptedHex, decrypted,
