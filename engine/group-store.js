@@ -210,6 +210,9 @@ export class GroupManager {
       groupRootEpochHex: G.bytesToHex(groupRootEpoch),
       blindingKeyHex: G.bytesToHex(blindingKey),
       currentEpoch: epoch,
+      // When THIS device learned about the group. Anything mined before it is history, not new
+      // mail - see the backfill floor in maybeNotifyGroupIncoming.
+      learnedAtMs: Date.now(),
       deviceIdHex: G.bytesToHex(deviceId),
       msgCounter: 0,
       members: roster,
@@ -546,6 +549,10 @@ export class GroupManager {
       groupRootEpochHex: payload.group_root_epoch,
       blindingKeyHex: payload.blinding_key,
       currentEpoch: payload.epoch,
+      // Set once, on the root that first told us this group exists, and preserved across every
+      // later epoch rotation - an add/remove must not reset the backfill floor and re-arm a
+      // flood of banners for messages already read.
+      learnedAtMs: existing?.learnedAtMs || Date.now(),
       // device_id is preserved across updates; counter resets only when the epoch advances.
       deviceIdHex: existing?.deviceIdHex || G.bytesToHex(G.generateDeviceId()),
       msgCounter: isNewEpoch ? 0 : (existing?.msgCounter || 0),

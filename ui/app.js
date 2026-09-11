@@ -161,6 +161,10 @@ function setGroupNotify(groupId, value) {
 const revealedPhotoIds = new Set();
 const BALANCE_REFRESH_MS = 15000;
 const MESSAGE_REFRESH_MS = 5000;
+// Ceiling for the sweep's failure backoff, matching iOS's foregroundSweepMaxInterval.
+const MESSAGE_REFRESH_MAX_MS = 60000;
+// The open conversation polls faster than the sweep - iOS uses the same 2s.
+const ACTIVE_CHAT_POLL_MS = 2000;
 const INDEXER_URL_KEY = "kachat-shell-step27-indexer-url";
 const PERSISTED_WALLET_KEY = "kachat-shell-testing-wallet-v2";
 const LEGACY_PERSISTED_WALLET_KEY = "kachat-shell-testing-wallet-private-key";
@@ -287,6 +291,10 @@ const transportMode = "onchain";
 let pendingOnchainDraft = null;
 let balanceRefreshTimer = null;
 let messageRefreshTimer = null;
+let activeChatPollTimer = null;
+let sweepLoopRunning = false;
+let activeChatPollRunning = false;
+let lastSweepFailed = false;
 let balanceRefreshInFlight = false;
 let messageRefreshInFlight = false;
 // True until the first full message sweep after a wallet is loaded, switched, or a
@@ -3203,9 +3211,29 @@ async function refreshBalanceOnly({ quiet = true } = {}) {
   }
 }
 
+/// Conversations with a sync already in flight.
+///
+/// Several paths now fetch the same conversation - the 5s sweep, the 2s poll for the chat on
+/// screen, a utxosChanged wake, a manual refresh. Each dedupes against the messages already in the
+/// conversation, but that check happens after its own await, so two overlapping runs can both look,
+/// both find nothing, and both append the same message. One run per conversation at a time closes
+/// the window; a caller that arrives mid-run simply skips, since the run in flight is about to
+/// produce the same result.
+const conversationSyncInFlight = new Set();
+
 async function syncOneConversation(conversationEntry, { quiet = true, catchUp = false } = {}) {
   const contact = contactForConversation(conversationEntry);
   if (!contact || !engine.address || !engine.isKasiaCipherLoaded?.()) return 0;
+  if (conversationSyncInFlight.has(conversationEntry.id)) return 0;
+  conversationSyncInFlight.add(conversationEntry.id);
+  try {
+    return await syncOneConversationWork(conversationEntry, { quiet, catchUp, contact });
+  } finally {
+    conversationSyncInFlight.delete(conversationEntry.id);
+  }
+}
+
+async function syncOneConversationWork(conversationEntry, { quiet, catchUp, contact }) {
   const knownTxids = (conversationEntry.messages || []).map((message) => message.txid).filter(Boolean);
   const indexerUrl = indexerUrlInput?.value?.trim() || getEndpoint("kasiaIndexer");
   // Message retention also raises the IMPORT floor (mirrors iOS ChatService's retention-aware
@@ -3581,12 +3609,15 @@ async function refreshAllConversations({ quiet = true } = {}) {
   // traffic — suppress its notifications and unread badges (see pendingInitialCatchUp).
   const catchUp = pendingInitialCatchUp;
   let added = 0;
+  // Every section swallows its own error so one bad endpoint cannot stop the rest of the sweep.
+  // Counting them is what lets the caller back off instead of hammering a dead indexer every 5s.
+  let sweepFailures = 0;
   try {
     ensureSelfChatForSync();
     try { added += await syncIncomingHandshakeRequests({ quiet }); }
-    catch (error) { appendEngineLog(`Incoming handshake sync failed: ${error.message}`); }
+    catch (error) { sweepFailures += 1; appendEngineLog(`Incoming handshake sync failed: ${error.message}`); }
     try { added += await syncOutgoingHandshakeEvidence({ quiet }); }
-    catch (error) { appendEngineLog(`Outgoing handshake sync failed: ${error.message}`); }
+    catch (error) { sweepFailures += 1; appendEngineLog(`Outgoing handshake sync failed: ${error.message}`); }
     try { added += await syncStrangerPaymentsIntoSelfChat({ catchUp }); }
     catch (error) { appendEngineLog(`Stranger payment sweep failed: ${error.message}`); }
     // Per-contact sync runs 4 wide instead of strictly sequentially — with many contacts
@@ -3610,7 +3641,7 @@ async function refreshAllConversations({ quiet = true } = {}) {
       while (sweepNext < sweepTargets.length) {
         const conversationEntry = sweepTargets[sweepNext++];
         try { added += await syncOneConversation(conversationEntry, { quiet, catchUp }); }
-        catch (error) { appendEngineLog(`Automatic message sync failed for ${conversationEntry.id}: ${error.message}`); }
+        catch (error) { sweepFailures += 1; appendEngineLog(`Automatic message sync failed for ${conversationEntry.id}: ${error.message}`); }
       }
     }));
     try { added += await syncGroupsNow({ catchUp }); }
@@ -3631,13 +3662,71 @@ async function refreshAllConversations({ quiet = true } = {}) {
     // that arms it mid-sweep still gets its own silent sweep next time.
     if (catchUp) pendingInitialCatchUp = false;
   }
+  lastSweepFailed = sweepFailures > 0;
+  return added;
 }
 
 function startAutomaticRefresh() {
   // Hidden-tab polls burn network + CPU for a page nobody is looking at; the
   // visibilitychange handler already forces a full refresh the moment the tab returns.
   if (!balanceRefreshTimer) balanceRefreshTimer = window.setInterval(() => { if (!document.hidden) refreshBalanceOnly({ quiet: true }); }, BALANCE_REFRESH_MS);
-  if (!messageRefreshTimer) messageRefreshTimer = window.setInterval(() => { if (!document.hidden) refreshAllConversations({ quiet: true }); }, MESSAGE_REFRESH_MS);
+  startSweepLoop();
+  startActiveChatPoll();
+}
+
+/// The full sweep, rescheduled after each run rather than on a fixed interval.
+///
+/// A fixed setInterval kept firing every 5s at an indexer that was already failing, which is both
+/// rude and pointless - the next attempt fails the same way. iOS backs its equivalent sweep off by
+/// doubling up to a minute and snaps straight back to base on the first success; this does the
+/// same. Self-scheduling also means a sweep that runs long can never have the next one queued on
+/// top of it.
+function startSweepLoop() {
+  if (sweepLoopRunning) return;
+  sweepLoopRunning = true;
+  let interval = MESSAGE_REFRESH_MS;
+  const tick = async () => {
+    if (!document.hidden) {
+      await refreshAllConversations({ quiet: true });
+      if (lastSweepFailed) {
+        const next = Math.min(interval * 2, MESSAGE_REFRESH_MAX_MS);
+        if (next !== interval) appendEngineLog(`Message sweep backing off to ${Math.round(next / 1000)}s after indexer failure.`);
+        interval = next;
+      } else if (interval !== MESSAGE_REFRESH_MS) {
+        appendEngineLog(`Message sweep recovered - back to ${Math.round(MESSAGE_REFRESH_MS / 1000)}s.`);
+        interval = MESSAGE_REFRESH_MS;
+      }
+    }
+    messageRefreshTimer = window.setTimeout(tick, interval);
+  };
+  messageRefreshTimer = window.setTimeout(tick, interval);
+}
+
+/// The conversation actually on screen, polled every 2s (iOS startActiveChatPoll).
+///
+/// The 5s sweep already covers every contact, but the chat you are looking at is the one place
+/// where the wait is felt - a reply can sit invisible for five seconds while you stare at the
+/// thread. Idempotent with every other path: syncOneConversation dedupes by txId, so overlapping
+/// with the sweep costs a wasted request at worst.
+function startActiveChatPoll() {
+  if (activeChatPollRunning) return;
+  activeChatPollRunning = true;
+  const tick = async () => {
+    activeChatPollTimer = null;
+    try {
+      const conversationEntry = (state.conversations || []).find((entry) => entry.id === activeConversationId);
+      const contact = conversationEntry ? contactForConversation(conversationEntry) : null;
+      if (!document.hidden && conversationEntry && engine.address && engine.isKasiaCipherLoaded?.()
+          && !messageRefreshInFlight && !pendingInitialCatchUp
+          // Same relationship boundary the sweep applies: an unaccepted stranger's history is
+          // not pulled in just because their request is open on screen.
+          && contact?.relationshipState !== "incoming-request" && contact?.relationshipState !== "declined") {
+        await syncOneConversation(conversationEntry, { quiet: true, catchUp: false });
+      }
+    } catch { /* the 5s sweep is the backstop; a missed tick costs nothing */ }
+    activeChatPollTimer = window.setTimeout(tick, ACTIVE_CHAT_POLL_MS);
+  };
+  activeChatPollTimer = window.setTimeout(tick, ACTIVE_CHAT_POLL_MS);
 }
 
 function renderTransportReadiness() {
@@ -12000,6 +12089,25 @@ messageArea.addEventListener("click", async (event) => {
       persistState();
       refreshSubscriptionAddresses({ restart: true });
       renderMessages(conversationEntry);
+      // Everything they sent before we accepted has to become readable now, and the ordinary
+      // sync will never ask for it: the sweep skips an unaccepted stranger entirely, so their
+      // history was never fetched, and the cursor only ever moves forward - once it is past
+      // those blocks nothing rewinds it. Reset it and re-read from genesis, once, at the moment
+      // the relationship becomes real. iOS does the same thing in recoverPreRelationshipHistory.
+      //
+      // Nothing is unrecoverable: contextual messages are stateless ECIES whose ephemeral public
+      // key travels inside the on-chain payload, so the whole history re-derives after the fact.
+      // knownTxids makes the re-read idempotent.
+      setStatus("Loading earlier messages…");
+      try {
+        conversationEntry.sync = { ...(conversationEntry.sync || {}), cursor: 0 };
+        await syncOneConversation(conversationEntry, { quiet: true, catchUp: true });
+        persistState();
+        renderMessages(conversationEntry);
+        renderChats();
+      } catch (error) {
+        appendEngineLog(`Could not load earlier messages: ${error.message}`);
+      }
       setStatus("Communication request accepted");
     } else {
       button.disabled = false;
@@ -17301,6 +17409,12 @@ function maybeNotifyGroupIncoming(groupId, senderAddress, text, id, createdAt) {
   if (!me || senderAddress === me) return;
   const mode = getGroupNotify(groupId);
   if (mode === "muted") return;
+  // Backfill floor, matching iOS: anything mined before this device learned about the group is
+  // that group's existing history, not new mail. The catchUp flag covers a restore; this covers
+  // being invited to a live group, whose history arrives on an ordinary sync and would otherwise
+  // fire a banner per message. Two minutes of slack for clock skew between devices.
+  const learnedAt = Number(getGroupManager()?.getGroup(groupId)?.learnedAtMs || 0);
+  if (learnedAt && Number(createdAt || 0) > 0 && Number(createdAt) < learnedAt - 120_000) return;
   // A hidden member's messages are filtered out of the thread; they must not ping either.
   if (isGroupMemberHidden(groupId, senderAddress)) return;
   if (textMentionsMe(text)) { maybeRecordGroupMention(groupId, senderAddress, text, id, createdAt); return; }
