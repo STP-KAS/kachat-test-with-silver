@@ -1,10 +1,15 @@
-# KaChat Desktop
+# KaChat test with Silver
 
-QUICK START (Mac, Linux, Windows/WSL)
+STP test fork of [KaspaSilver/KaChat-Desktop](https://github.com/KaspaSilver/KaChat-Desktop).
+Use this repo to test handshakes and chat against Silver's KaChat.
+
+STP production client: [STP-KAS/stp-kachat](https://github.com/STP-KAS/stp-kachat).
+
+QUICK START (Mac, Linux, Windows)
 
 ```
-git clone https://github.com/KaspaSilver/KaChat-Desktop.git
-cd KaChat-Desktop
+git clone https://github.com/STP-KAS/kachat-test-with-silver.git
+cd kachat-test-with-silver
 npm install
 npm run dev
 ```
