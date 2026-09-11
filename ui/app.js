@@ -96,14 +96,43 @@ function isSessionActive() { try { return sessionStorage.getItem(SESSION_ACTIVE_
 const CONTACT_PREFS_KEY = "kachat-contact-prefs-v1";
 let contactPrefs = (() => { try { return JSON.parse(localStorage.getItem(CONTACT_PREFS_KEY) || "{}") || {}; } catch { return {}; } })();
 function saveContactPrefs() { localStorage.setItem(CONTACT_PREFS_KEY, JSON.stringify(contactPrefs)); }
-function getContactNotify(address) { return contactPrefs[address]?.notify || "enabled"; } // "enabled" | "muted"
+/// This contact's notification override, or null to follow the global default.
+///
+/// "sound" | "noSound" | "off" | null, matching iOS's ContactNotificationMode. Older installs
+/// stored a two-state "enabled" / "muted": "muted" becomes "off", and "enabled" becomes null -
+/// it only ever meant "not muted", which is what following the default means.
+function getContactNotifyOverride(address) {
+  const raw = contactPrefs[address]?.notify;
+  if (raw === "muted" || raw === "off") return "off";
+  if (raw === "noSound" || raw === "sound") return raw;
+  return null;
+}
+
+/// The mode that actually applies to this contact (iOS AppSettings.effectiveIncomingNotificationMode).
+function effectiveNotifyMode(address) {
+  if ((accountShellPrefs.chatNotifications ?? true) === false) return "off";
+  return getContactNotifyOverride(address) || defaultIncomingNotifyMode();
+}
+
+/// The global default every contact without an override follows.
+///
+/// Derived from the existing Play sound preference so nothing is lost in the migration: sound on
+/// means "Sound", sound off means "No Sound". Both still deliver a banner - the master Chats
+/// toggle is what turns notifications off entirely.
+function defaultIncomingNotifyMode() {
+  return (accountShellPrefs.notificationSound ?? true) === false ? "noSound" : "sound";
+}
 // "auto" (decide from the global photo-approval setting) | "always" (this contact is trusted,
 // always render) | "manual" (never auto-render). Mirrors iOS PhotoAutoDisplayMode
 // (.automatic / .alwaysShow / .alwaysHide); older installs only ever stored auto/manual.
 function getContactPhotos(address) { return contactPrefs[address]?.photos || "auto"; }
 function setContactPref(address, key, value) {
   if (!address) return;
-  contactPrefs[address] = { ...(contactPrefs[address] || {}), [key]: value };
+  const next = { ...(contactPrefs[address] || {}) };
+  // undefined means "no override" - stored as an absent key rather than a present undefined, so
+  // the distinction survives a round trip through JSON.
+  if (value === undefined) delete next[key]; else next[key] = value;
+  contactPrefs[address] = next;
   saveContactPrefs();
 }
 
@@ -1489,7 +1518,7 @@ chatInfoAliasSending?.addEventListener("click", async () => {
 });
 
 function refreshChatInfoContactControls() {
-  if (chatInfoNotifyToggle) chatInfoNotifyToggle.checked = getContactNotify(chatInfoContactAddress) !== "muted";
+  if (chatInfoNotifyToggle) chatInfoNotifyToggle.value = getContactNotifyOverride(chatInfoContactAddress) || "default";
   // Shows the EFFECTIVE state: a contact left on "auto" reads as off while the global
   // photo-approval setting is holding their photos back, so the toggle never claims photos
   // are showing when they are not.
@@ -1500,8 +1529,11 @@ function refreshChatInfoContactControls() {
 }
 chatInfoNotifyToggle?.addEventListener("change", async () => {
   if (!chatInfoContactAddress) return;
-  setContactPref(chatInfoContactAddress, "notify", chatInfoNotifyToggle.checked ? "enabled" : "muted");
-  if (chatInfoNotifyToggle.checked) {
+  const choice = String(chatInfoNotifyToggle.value || "default");
+  // "default" stores nothing: an override that happens to equal today's default would silently
+  // stop following it the next time the default changes.
+  setContactPref(chatInfoContactAddress, "notify", choice === "default" ? undefined : choice);
+  if (choice !== "off") {
     const granted = await ensureNotificationPermission();
     if (!granted) showCopyToast("Allow notifications in your browser to receive them.");
   }
@@ -1547,10 +1579,11 @@ async function ensureNotificationPermission() {
 }
 function maybeNotifyIncoming(conversationEntry, contact, message) {
   if (!message || message.direction !== "incoming") return;
-  // Settings > Notifications > Chats master toggle (default ON).
-  if ((accountShellPrefs.chatNotifications ?? true) === false) return;
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-  if (getContactNotify(contact?.address) === "muted") return;
+  // Settings > Notifications > Chats master toggle, then this contact's own override on top of
+  // the global default - the same three-way rule iOS applies (off / No Sound / Sound).
+  const mode = effectiveNotifyMode(contact?.address);
+  if (mode === "off") return;
   if (parseReactionEnvelope(message.text)) return; // reactions aren't standalone messages
   if (parsePaymentPoolEnvelope(message.text)) return; // fresh-address pool control envelopes are silent (matches iOS)
   // Don't notify for the conversation you're already looking at in a focused window.
@@ -1561,7 +1594,7 @@ function maybeNotifyIncoming(conversationEntry, contact, message) {
       body: displayTextForMessage(message) || "New message",
       tag: `kachat-${conversationEntry.id}`,
       icon: kachatLogoUrl,
-      silent: (accountShellPrefs.notificationSound ?? true) === false,
+      silent: mode !== "sound",
     });
     note.onclick = () => { try { window.focus(); } catch {} setActiveAppTab("chats"); openConversation(conversationEntry.id); note.close(); };
   } catch { /* notification construction can throw in some contexts */ }

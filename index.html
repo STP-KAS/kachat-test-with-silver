@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KaChat Desktop</title>
-  <link rel="stylesheet" href="./ui/styles.css?v=343" />
+  <link rel="stylesheet" href="./ui/styles.css?v=344" />
   <meta name="theme-color" content="#070a0d" />
   <!-- The KaChat logo the app already ships (432px PNG) doubles as the tab icon. -->
   <link rel="icon" type="image/png" href="./ui/assets/kachat-logo.png" />
@@ -2695,8 +2695,13 @@
         <p class="profile-section-label">Notifications</p>
         <div class="settings-list-card">
           <div class="settings-toggle-row">
-            <span><strong>Incoming Notifications</strong><small>On: get a desktop notification when this contact messages you. Off: mute all notifications from this contact.</small></span>
-            <label class="switch-control"><input type="checkbox" data-chat-info-notify><span></span></label>
+            <span><strong>Incoming Notifications</strong><small>How this one contact's messages arrive. Default follows the setting in Settings &gt; Notifications.</small></span>
+            <select class="settings-select" data-chat-info-notify>
+              <option value="default">Default</option>
+              <option value="sound">Sound</option>
+              <option value="noSound">No Sound</option>
+              <option value="off">Off</option>
+            </select>
           </div>
         </div>
 
@@ -2746,7 +2751,7 @@
     <span data-copy-toast-text>Copied</span>
   </div>
 
-  <script type="module" src="./ui/app.js?v=358"></script>
+  <script type="module" src="./ui/app.js?v=359"></script>
   <script type="module" src="./ui/pwa.js?v=1"></script>
 
   <div class="modal-backdrop logout-backdrop" data-logout-modal hidden>

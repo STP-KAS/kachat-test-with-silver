@@ -3661,6 +3661,14 @@ body.session-logged-out [data-account-rename-modal] {
 .settings-dropdown-body > .settings-dropdown-row:last-child { margin-bottom: -16px; }
 .settings-dropdown-row + .settings-dropdown-row { border-top: 1px solid var(--line); }
 .settings-dropdown-row:hover { background: var(--surface-1); }
+/* A three-way choice in a settings row, where a switch only offers two. */
+.settings-select {
+  flex: 0 0 auto; padding: 8px 11px; font: inherit; font-size: 13px; font-weight: 650;
+  color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 11px; cursor: pointer;
+}
+.settings-select:focus { outline: none; border-color: rgba(98,244,208,.42); }
+
 .settings-select-row {
   display: flex;
   align-items: center;
