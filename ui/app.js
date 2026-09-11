@@ -1801,8 +1801,29 @@ function shortAddress(address) {
 function displayNameForAddress(contact) {
   if (!contact) return "";
   if (contact.nameIsCustom) return contact.name || shortAddress(contact.address);
-  const knsInfo = engine.peekKnsAddressInfo?.(contact.address);
-  return knsInfo?.explicitPrimaryDomain || contact.name || shortAddress(contact.address);
+  return knsDomainForAddress(contact.address) || contact.name || shortAddress(contact.address);
+}
+
+/// The KNS name to show for an address, matching iOS's ContactsManager.displayName.
+///
+/// Two caches answer "who is this": the domain cache, which knows the explicit on-chain primary,
+/// and the profile cache, which knows which domain actually represents the address and carries its
+/// avatar. This read only ever consulted the first, so an address that owns domains but never set
+/// an explicit primary got no name at all - while its avatar, fetched from the second cache,
+/// rendered perfectly. Faces with no names beside them.
+///
+/// iOS reads the profile cache alone, and the profile cache is where the avatar comes from, so
+/// falling through to it is what keeps the name and the face describing the same domain. The
+/// explicit primary still wins when it exists: it is the domain the address deliberately chose.
+///
+/// Deliberately NOT `primaryDomain`, which falls back to whichever domain was created most
+/// recently. The profile cache already picks better than that - the first owned domain with any
+/// profile content - and "most recently created" would misrepresent who someone is.
+function knsDomainForAddress(address) {
+  if (!address) return null;
+  const info = engine.peekKnsAddressInfo?.(address);
+  if (info?.explicitPrimaryDomain) return info.explicitPrimaryDomain;
+  return engine.peekKnsAddressProfile?.(address)?.domainName || null;
 }
 
 // Called after any KNS info refresh: if this contact has no user-set custom
@@ -1811,8 +1832,7 @@ function displayNameForAddress(contact) {
 // header, Chat Info) instead of being recomputed separately in each place.
 function applyKnsPrimaryDomainToContact(contact) {
   if (!contact || contact.nameIsCustom) return false;
-  const knsInfo = engine.peekKnsAddressInfo?.(contact.address);
-  const domain = knsInfo?.explicitPrimaryDomain || null;
+  const domain = knsDomainForAddress(contact.address);
   if (domain && contact.name !== domain) {
     contact.name = domain;
     contact.updatedAt = Date.now();
@@ -9895,7 +9915,7 @@ function buildCreateChatPickerRows(addresses, { known, youFollow, followsYou }) 
       return {
         address,
         name: contact ? displayNameForAddress(contact)
-          : (engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || shortAddress(address)),
+          : (knsDomainForAddress(address) || shortAddress(address)),
         isContact: known.has(address),
         youFollow: youFollow.has(address),
         followsYou: followsYou.has(address),
@@ -18103,7 +18123,7 @@ function eligibleGroupContacts(excludeAddresses = []) {
         address,
         contact,
         name: contact ? displayNameForAddress(contact)
-          : (engine.peekKnsAddressInfo?.(address)?.explicitPrimaryDomain || shortAddress(address)),
+          : (knsDomainForAddress(address) || shortAddress(address)),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -18186,7 +18206,7 @@ function renderGroupSelectedMembers() {
     // have a KNS name and avatar - falling straight to the short address dropped both.
     const name = contact
       ? displayNameForAddress(contact)
-      : (engine.peekKnsAddressInfo?.(addr)?.explicitPrimaryDomain || shortAddress(addr));
+      : (knsDomainForAddress(addr) || shortAddress(addr));
     const avatar = contact
       ? avatarHtmlFor(contact, "chat-avatar")
       : groupPickerAvatarHtml(addr, name);
