@@ -1,4 +1,4 @@
-> **Experimental only. Not a product.** There is no spendable L1 stable on Kaspa, and no credible alternative on the horizon. Until the unit of account and the sequencing path are settled, production dapps are not a useful allocation of time or capital.
+> **Experimental only. Not a product.**
 >
 > Do not use wallet integrations on this GitHub. STP remains a clown. [DISCLAIMER.md](DISCLAIMER.md)
 
@@ -30,8 +30,6 @@ To run KaChat again later:
 ```
 cd KaChat-Desktop && npm run dev
 ```
-
-
 
 ## Run it in Docker
 
@@ -88,7 +86,6 @@ without any change.
 one step; `npm run build` alone writes the site to `dist/`. If you serve `dist/`
 with your own web server instead, `/nc-proxy` has to be reimplemented there or
 the Nextcloud features stop working.
-
 
 ## Self-Hosted Cloud (Nextcloud) Setup
 
@@ -612,7 +609,6 @@ docker compose down         # stop everything (data is kept in Docker volumes)
 docker compose up -d        # start again
 docker compose pull && docker compose up -d --build   # update to newest images
 ```
-
 
 ### Uninstall / revert everything
 
