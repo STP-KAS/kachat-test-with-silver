@@ -31,6 +31,8 @@ To run KaChat again later:
 cd KaChat-Desktop && npm run dev
 ```
 
+
+
 ## Run it in Docker
 
 If you would rather not install Node, there is a Dockerfile and a compose file:
@@ -86,6 +88,7 @@ without any change.
 one step; `npm run build` alone writes the site to `dist/`. If you serve `dist/`
 with your own web server instead, `/nc-proxy` has to be reimplemented there or
 the Nextcloud features stop working.
+
 
 ## Self-Hosted Cloud (Nextcloud) Setup
 
@@ -609,6 +612,7 @@ docker compose down         # stop everything (data is kept in Docker volumes)
 docker compose up -d        # start again
 docker compose pull && docker compose up -d --build   # update to newest images
 ```
+
 
 ### Uninstall / revert everything
 
